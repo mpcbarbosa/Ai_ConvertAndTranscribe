@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { TranslationResult, TranscriptSegmentData } from '@/types';
+import type { TranslationResult, TranscriptSegmentData } from '../../types';
 
 const LANGUAGE_MAP: Record<string, string> = {
   en: 'English',

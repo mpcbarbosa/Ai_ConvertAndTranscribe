@@ -1,7 +1,7 @@
-import type { Locale } from '@/types';
-import { SUPPORTED_LOCALES } from '@/types';
-import { getDictionary } from '@/lib/i18n';
-import { JobDetail } from '@/components/jobs/job-detail';
+import type { Locale } from '../../../../types';
+import { SUPPORTED_LOCALES } from '../../../../types';
+import { getDictionary } from '../../../../lib/i18n';
+import { JobDetail } from '../../../../components/jobs/job-detail';
 
 interface Props {
   params: { locale: string; id: string };

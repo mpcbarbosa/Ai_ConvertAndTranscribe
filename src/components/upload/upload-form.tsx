@@ -3,9 +3,9 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDropzone } from 'react-dropzone';
-import { createTranslator } from '@/lib/i18n';
-import { formatBytes } from '@/lib/utils';
-import type { Locale } from '@/types';
+import { createTranslator } from '../../lib/i18n';
+import { formatBytes } from '../../lib/utils';
+import type { Locale } from '../../types';
 import {
   Upload,
   FileAudio,

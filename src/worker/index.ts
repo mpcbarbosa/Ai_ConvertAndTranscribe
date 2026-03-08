@@ -1,19 +1,19 @@
-import { Worker, type BullJob, getWorkerConnection, QUEUE_NAME, type TranscriptionJobData } from '@/lib/queue';
-import prisma from '@/lib/db/client';
-import { getStorage } from '@/lib/storage';
+import { Worker, type BullJob, getWorkerConnection, QUEUE_NAME, type TranscriptionJobData } from '../lib/queue';
+import prisma from '../lib/db/client';
+import { getStorage } from '../lib/storage';
 import {
   getMediaInfo,
   convertToMp3,
   normalizeForTranscription,
   splitIntoChunks,
   cleanupFiles,
-} from '@/lib/media';
-import { generateSrt, generateVtt, generateTxt, generateJson } from '@/lib/media/artifacts';
-import { getTranscriptionProvider } from '@/lib/transcription';
-import { postProcessTranscript, mergeChunkSegments } from '@/lib/transcription/post-process';
-import { getTranslationProvider } from '@/lib/translation';
-import { createJobLogger } from '@/lib/utils/logger';
-import type { TranscriptSegmentData, ProcessingMode } from '@/types';
+} from '../lib/media';
+import { generateSrt, generateVtt, generateTxt, generateJson } from '../lib/media/artifacts';
+import { getTranscriptionProvider } from '../lib/transcription';
+import { postProcessTranscript, mergeChunkSegments } from '../lib/transcription/post-process';
+import { getTranslationProvider } from '../lib/translation';
+import { createJobLogger } from '../lib/utils/logger';
+import type { TranscriptSegmentData, ProcessingMode } from '../types';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';

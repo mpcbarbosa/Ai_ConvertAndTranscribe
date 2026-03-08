@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { createTranslator } from '@/lib/i18n';
-import { formatBytes, formatDuration, formatMs } from '@/lib/utils';
-import type { Locale } from '@/types';
+import { createTranslator } from '../../lib/i18n';
+import { formatBytes, formatDuration, formatMs } from '../../lib/utils';
+import type { Locale } from '../../types';
 import {
   ArrowLeft,
   Download,

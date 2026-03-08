@@ -1,4 +1,4 @@
-import { msToSrtTime, msToVttTime } from '@/lib/utils';
+import { msToSrtTime, msToVttTime } from '../utils';
 
 export interface SegmentForArtifact {
   startMs: number;

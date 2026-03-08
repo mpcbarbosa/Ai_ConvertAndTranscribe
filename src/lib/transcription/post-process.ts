@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { TranscriptSegmentData, ProcessingMode } from '@/types';
+import type { TranscriptSegmentData, ProcessingMode } from '../../types';
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 

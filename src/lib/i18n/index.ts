@@ -1,10 +1,10 @@
-import type { Locale } from '@/types';
+import type { Locale } from '../../types';
 
 // Import all locale dictionaries statically
-import en from '@/locales/en/common.json';
-import pt from '@/locales/pt/common.json';
-import es from '@/locales/es/common.json';
-import fr from '@/locales/fr/common.json';
+import en from '../../locales/en/common.json';
+import pt from '../../locales/pt/common.json';
+import es from '../../locales/es/common.json';
+import fr from '../../locales/fr/common.json';
 
 const dictionaries: Record<Locale, Record<string, unknown>> = { en, pt, es, fr };
 

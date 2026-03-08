@@ -1,4 +1,4 @@
-import prisma from '@/lib/db/client';
+import prisma from '../db/client';
 
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 

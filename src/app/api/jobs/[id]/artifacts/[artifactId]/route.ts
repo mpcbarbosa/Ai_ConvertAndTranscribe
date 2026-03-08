@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/db/client';
-import { getStorage } from '@/lib/storage';
+import prisma from '../../../../../../lib/db/client';
+import { getStorage } from '../../../../../../lib/storage';
 
 export async function GET(
   _request: NextRequest,

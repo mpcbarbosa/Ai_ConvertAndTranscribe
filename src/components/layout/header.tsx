@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import type { Locale } from '@/types';
-import { SUPPORTED_LOCALES } from '@/types';
+import type { Locale } from '../../types';
+import { SUPPORTED_LOCALES } from '../../types';
 import { Upload, ListTodo, Globe } from 'lucide-react';
 
 interface HeaderProps {

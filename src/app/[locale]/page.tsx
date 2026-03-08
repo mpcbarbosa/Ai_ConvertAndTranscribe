@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import type { Locale } from '@/types';
-import { SUPPORTED_LOCALES } from '@/types';
-import { getDictionary, createTranslator } from '@/lib/i18n';
+import type { Locale } from '../../types';
+import { SUPPORTED_LOCALES } from '../../types';
+import { getDictionary, createTranslator } from '../../lib/i18n';
 import { Upload, ListTodo, Languages, FileAudio } from 'lucide-react';
 
 interface Props {

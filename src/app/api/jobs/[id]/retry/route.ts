@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/db/client';
-import { enqueueJob } from '@/lib/queue';
+import prisma from '../../../../../lib/db/client';
+import { enqueueJob } from '../../../../../lib/queue';
 
 export async function POST(
   _request: NextRequest,

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/db/client';
-import { getStorage } from '@/lib/storage';
-import { enqueueJob } from '@/lib/queue';
-import { sanitizeFileName, isVideoFile, getFileExtension } from '@/lib/utils';
-import { SUPPORTED_EXTENSIONS } from '@/types';
+import prisma from '../../../lib/db/client';
+import { getStorage } from '../../../lib/storage';
+import { enqueueJob } from '../../../lib/queue';
+import { sanitizeFileName, isVideoFile, getFileExtension } from '../../../lib/utils';
+import { SUPPORTED_EXTENSIONS } from '../../../types';
 import { v4 as uuidv4 } from 'uuid';
 
 const MAX_SIZE = parseInt(process.env.MAX_UPLOAD_SIZE_MB || '500') * 1024 * 1024;

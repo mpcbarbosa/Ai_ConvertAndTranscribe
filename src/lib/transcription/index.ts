@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import fs from 'fs';
-import type { TranscriptSegmentData, TranscriptionResult, ProcessingMode } from '@/types';
+import type { TranscriptSegmentData, TranscriptionResult, ProcessingMode } from '../../types';
 
 export interface TranscriptionProvider {
   transcribe(

@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import type { Locale } from '@/types';
-import { SUPPORTED_LOCALES } from '@/types';
-import { getDictionary, createTranslator } from '@/lib/i18n';
-import { Header } from '@/components/layout/header';
+import type { Locale } from '../../types';
+import { SUPPORTED_LOCALES } from '../../types';
+import { getDictionary, createTranslator } from '../../lib/i18n';
+import { Header } from '../../components/layout/header';
 
 export const metadata: Metadata = {
   title: 'TranscribeX — Video & Audio Transcription',
