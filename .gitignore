@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+.env
+.env.local
+.env.production
+*.log
+storage/
+tmp/
+prisma/*.db
+prisma/migrations/**/migration_lock.toml
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts

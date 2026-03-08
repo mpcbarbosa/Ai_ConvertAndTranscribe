@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum JobStatus {
+  uploaded
+  queued
+  converting
+  transcribing
+  post_processing
+  translating
+  generating_outputs
+  completed
+  failed
+}
+
+enum ProcessingMode {
+  best_quality
+  balanced
+}
+
+enum SourceType {
+  video
+  audio
+}
+
+enum ArtifactType {
+  original
+  mp3
+  transcript_txt
+  transcript_json
+  translation_txt
+  translation_json
+  srt
+  vtt
+}
+
+enum LogLevel {
+  info
+  warn
+  error
+  debug
+}
+
+model Job {
+  id               String         @id @default(cuid())
+  originalFileName String
+  originalMimeType String
+  originalFileSize BigInt
+  sourceType       SourceType
+  sourceLanguage   String?        // user-selected or null for auto-detect
+  detectedLanguage String?        // what was actually detected
+  targetLanguage   String?        // translation target
+  uiLanguage       String         @default("en")
+  processingMode   ProcessingMode @default(balanced)
+  status           JobStatus      @default(uploaded)
+  providerUsed     String?
+  durationSeconds  Float?
+  errorMessage     String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  completedAt      DateTime?
+
+  artifacts        JobArtifact[]
+  segments         TranscriptSegment[]
+  logs             ProcessingLog[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model JobArtifact {
+  id          String       @id @default(cuid())
+  jobId       String
+  type        ArtifactType
+  storagePath String
+  mimeType    String
+  sizeBytes   BigInt       @default(0)
+  createdAt   DateTime     @default(now())
+
+  job         Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+model TranscriptSegment {
+  id             String   @id @default(cuid())
+  jobId          String
+  startMs        Int
+  endMs          Int
+  speakerLabel   String?
+  sourceText     String
+  translatedText String?
+  confidence     Float?
+  chunkIndex     Int      @default(0)
+  segmentIndex   Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  job            Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([jobId, chunkIndex, segmentIndex])
+}
+
+model ProcessingLog {
+  id        String   @id @default(cuid())
+  jobId     String
+  stage     String
+  level     LogLevel @default(info)
+  message   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([jobId, stage])
+}
