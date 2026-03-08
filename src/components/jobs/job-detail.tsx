@@ -126,13 +126,15 @@ export function JobDetail({ locale, dict, jobId }: Props) {
     fetchJob();
   }, [fetchJob]);
 
+  const jobStatus = job?.status;
+
   useEffect(() => {
-    const isProcessing = job && !['completed', 'failed'].includes(job.status);
+    const isProcessing = jobStatus && !['completed', 'failed'].includes(jobStatus);
     if (isProcessing) {
       const interval = setInterval(fetchJob, 3000);
       return () => clearInterval(interval);
     }
-  }, [fetchJob, job?.status]);
+  }, [fetchJob, jobStatus]);
 
   const handleRetry = async () => {
     if (!confirm(t('job_detail.retry_confirm'))) return;

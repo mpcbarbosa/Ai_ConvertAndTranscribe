@@ -20,7 +20,7 @@ export async function logProcessing(
         stage,
         level,
         message,
-        metadata: metadata || undefined,
+        metadata: metadata ? JSON.parse(JSON.stringify(metadata)) : undefined,
       },
     });
   } catch {
