@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useMemo } from 'react';
 import type { Locale } from '../../types';
 import { SUPPORTED_LOCALES } from '../../types';
+import { createTranslator } from '../../lib/i18n';
 import { Upload, ListTodo, Globe } from 'lucide-react';
 
 interface HeaderProps {
   locale: Locale;
-  t: (key: string) => string;
+  dict: Record<string, unknown>;
 }
 
 const LOCALE_LABELS: Record<Locale, string> = {
@@ -18,28 +20,24 @@ const LOCALE_LABELS: Record<Locale, string> = {
   fr: 'Français',
 };
 
-export function Header({ locale, t }: HeaderProps) {
+export function Header({ locale, dict }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useMemo(() => createTranslator(dict), [dict]);
 
   const switchLocale = (newLocale: string) => {
     const segments = pathname.split('/');
     segments[1] = newLocale;
     const newPath = segments.join('/');
-
-    // Set cookie for persistence
     document.cookie = `locale=${newLocale};path=/;max-age=31536000;SameSite=Lax`;
     router.push(newPath);
   };
 
-  const isActive = (path: string) => {
-    return pathname.includes(path);
-  };
+  const isActive = (path: string) => pathname.includes(path);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/40 bg-white/80 backdrop-blur-lg">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Logo */}
         <Link
           href={`/${locale}`}
           className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground"
@@ -50,7 +48,6 @@ export function Header({ locale, t }: HeaderProps) {
           <span className="hidden sm:inline">TranscribeX</span>
         </Link>
 
-        {/* Navigation */}
         <nav className="flex items-center gap-1">
           <Link
             href={`/${locale}/upload`}
@@ -76,7 +73,6 @@ export function Header({ locale, t }: HeaderProps) {
             <span className="hidden sm:inline">{t('nav.jobs')}</span>
           </Link>
 
-          {/* Language Selector */}
           <div className="relative ml-2">
             <div className="flex items-center gap-1 rounded-lg border border-border bg-white px-2 py-1.5">
               <Globe className="h-4 w-4 text-muted-foreground" />

@@ -26,7 +26,7 @@ export default function LocaleLayout({ children, params }: Props) {
   return (
     <html lang={locale}>
       <body className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 antialiased">
-        <Header locale={locale} t={t} />
+        <Header locale={locale} dict={dict} />
         <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
           {children}
         </main>
