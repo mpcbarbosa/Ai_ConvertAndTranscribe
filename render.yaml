@@ -1,6 +1,6 @@
 databases:
   - name: transcribex-db
-    plan: free
+    plan: basic-256mb
     databaseName: transcribex
     user: transcribex
     ipAllowList: []
