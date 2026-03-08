@@ -7,7 +7,7 @@ build/
 .env.local
 .env.production
 *.log
-storage/
+/storage/
 tmp/
 prisma/*.db
 prisma/migrations/**/migration_lock.toml
