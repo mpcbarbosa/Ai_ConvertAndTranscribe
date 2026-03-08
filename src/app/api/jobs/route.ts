@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Convert BigInt to string for serialization
-    const serialized = jobs.map(j => ({
+    const serialized = jobs.map((j: { originalFileSize: bigint;[key: string]: unknown }) => ({
       ...j,
       originalFileSize: j.originalFileSize.toString(),
     }));

@@ -38,7 +38,7 @@ export async function GET(
 
     const fileName = fileNameMap[artifact.type] || 'download';
 
-    return new NextResponse(data, {
+    return new NextResponse(new Uint8Array(data), {
       headers: {
         'Content-Type': artifact.mimeType,
         'Content-Disposition': `attachment; filename="${fileName}"`,

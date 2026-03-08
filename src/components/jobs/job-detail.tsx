@@ -124,6 +124,9 @@ export function JobDetail({ locale, dict, jobId }: Props) {
 
   useEffect(() => {
     fetchJob();
+  }, [fetchJob]);
+
+  useEffect(() => {
     const isProcessing = job && !['completed', 'failed'].includes(job.status);
     if (isProcessing) {
       const interval = setInterval(fetchJob, 3000);

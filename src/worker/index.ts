@@ -1,4 +1,4 @@
-import { Worker, type BullJob, getRedisConnection, QUEUE_NAME, type TranscriptionJobData } from '@/lib/queue';
+import { Worker, type BullJob, getWorkerConnection, QUEUE_NAME, type TranscriptionJobData } from '@/lib/queue';
 import prisma from '@/lib/db/client';
 import { getStorage } from '@/lib/storage';
 import {
@@ -306,7 +306,7 @@ const worker = new Worker<TranscriptionJobData>(
   QUEUE_NAME,
   processJob,
   {
-    connection: getRedisConnection(),
+    connection: getWorkerConnection(),
     concurrency: 1,
     limiter: {
       max: 2,

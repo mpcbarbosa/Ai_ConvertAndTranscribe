@@ -1,18 +1,18 @@
 import { Queue, Worker, type Job as BullJob } from 'bullmq';
-import IORedis from 'ioredis';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
-let connection: IORedis | null = null;
-
-export function getRedisConnection(): IORedis {
-  if (!connection) {
-    connection = new IORedis(REDIS_URL, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    });
-  }
-  return connection;
+function getConnectionConfig() {
+  const url = new URL(REDIS_URL);
+  return {
+    host: url.hostname,
+    port: parseInt(url.port || '6379'),
+    password: url.password || undefined,
+    username: url.username || undefined,
+    tls: url.protocol === 'rediss:' ? {} : undefined,
+    maxRetriesPerRequest: null as null,
+    enableReadyCheck: false,
+  };
 }
 
 export const QUEUE_NAME = 'transcription-jobs';
@@ -22,7 +22,7 @@ let queue: Queue | null = null;
 export function getQueue(): Queue {
   if (!queue) {
     queue = new Queue(QUEUE_NAME, {
-      connection: getRedisConnection(),
+      connection: getConnectionConfig(),
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
@@ -32,6 +32,10 @@ export function getQueue(): Queue {
     });
   }
   return queue;
+}
+
+export function getWorkerConnection() {
+  return getConnectionConfig();
 }
 
 export interface TranscriptionJobData {
@@ -45,4 +49,4 @@ export async function enqueueJob(jobId: string): Promise<void> {
   });
 }
 
-export { Worker, type BullJob };
+export { Queue, Worker, type BullJob };

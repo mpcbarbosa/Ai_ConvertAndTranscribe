@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {},
-  serverExternalPackages: ['fluent-ffmpeg'],
+  experimental: {
+    serverComponentsExternalPackages: ['fluent-ffmpeg'],
+  },
   output: 'standalone',
 };
 

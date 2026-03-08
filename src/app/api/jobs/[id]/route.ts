@@ -30,7 +30,7 @@ export async function GET(
     const serialized = {
       ...job,
       originalFileSize: job.originalFileSize.toString(),
-      artifacts: job.artifacts.map(a => ({
+      artifacts: job.artifacts.map((a: { sizeBytes: bigint;[key: string]: unknown }) => ({
         ...a,
         sizeBytes: a.sizeBytes.toString(),
       })),
