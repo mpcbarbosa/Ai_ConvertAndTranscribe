@@ -1,8 +1,9 @@
 databases:
   - name: transcribex-db
-    plan: starter
+    plan: free
     databaseName: transcribex
     user: transcribex
+    ipAllowList: []
 
 services:
   # Web service (Next.js)
@@ -73,6 +74,6 @@ services:
   # Redis
   - type: redis
     name: transcribex-redis
-    plan: starter
+    plan: free
     maxmemoryPolicy: noeviction
-    ipAllowList: []  # Allow connections from all Render services
+    ipAllowList: []
