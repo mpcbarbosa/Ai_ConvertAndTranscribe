@@ -75,3 +75,4 @@ services:
     name: transcribex-redis
     plan: starter
     maxmemoryPolicy: noeviction
+    ipAllowList: []  # Allow connections from all Render services
