@@ -61,10 +61,7 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: NEXT_PUBLIC_APP_URL
-        fromService:
-          name: transcribex-web
-          type: web
-          property: host
+        sync: false
       - key: NODE_ENV
         value: production
 
