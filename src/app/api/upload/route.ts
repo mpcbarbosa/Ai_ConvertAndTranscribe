@@ -8,6 +8,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 const MAX_SIZE = parseInt(process.env.MAX_UPLOAD_SIZE_MB || '500') * 1024 * 1024;
 
+// Allow large file uploads (Next.js default is 4MB)
+export const runtime = 'nodejs';
+export const maxDuration = 300; // 5 minutes for large uploads
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
