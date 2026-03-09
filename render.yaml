@@ -60,16 +60,13 @@ services:
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false
-      - key: STORAGE_PROVIDER
-        value: local
-      - key: STORAGE_LOCAL_PATH
-        value: /opt/render/project/storage
+      - key: NEXT_PUBLIC_APP_URL
+        fromService:
+          name: transcribex-web
+          type: web
+          property: host
       - key: NODE_ENV
         value: production
-    disk:
-      name: transcribex-worker-storage
-      mountPath: /opt/render/project/storage
-      sizeGB: 10
 
   # Redis
   - type: redis

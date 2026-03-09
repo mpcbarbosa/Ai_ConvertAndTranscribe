@@ -1,6 +1,5 @@
 import { Worker, type BullJob, getWorkerConnection, QUEUE_NAME, type TranscriptionJobData } from '../lib/queue';
 import prisma from '../lib/db/client';
-import { getStorage } from '../lib/storage';
 import {
   getMediaInfo,
   convertToMp3,
@@ -18,7 +17,55 @@ import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
 
-const storage = getStorage();
+function getWebUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000';
+  // If it's just a hostname (from Render's fromService.host), add https://
+  if (raw && !raw.startsWith('http')) {
+    return `https://${raw}`;
+  }
+  return raw;
+}
+
+const WEB_URL = getWebUrl();
+
+/**
+ * Download a file from the web service's internal API.
+ * On Render, the worker and web service have separate disks,
+ * so we transfer files via HTTP.
+ */
+async function downloadFileFromWeb(storageKey: string, destPath: string): Promise<void> {
+  const encodedKey = encodeURIComponent(storageKey);
+  const url = `${WEB_URL}/api/internal/files/${encodedKey}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download file from web service: ${response.status} ${response.statusText}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+  await fs.writeFile(destPath, buffer);
+}
+
+/**
+ * Upload a generated artifact back to the web service storage via HTTP.
+ */
+async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<void> {
+  const url = `${WEB_URL}/api/internal/files`;
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'x-storage-key': storageKey,
+    },
+    body: data,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to upload artifact to web service: ${response.status} ${response.statusText}`);
+  }
+}
 
 async function updateJobStatus(jobId: string, status: string, extra?: Record<string, unknown>) {
   await prisma.job.update({
@@ -41,13 +88,18 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     await log.info('start', `Processing job: ${job.originalFileName}`);
 
-    // Get original file from storage
+    // Get original file artifact reference
     const originalArtifact = await prisma.jobArtifact.findFirst({
       where: { jobId, type: 'original' },
     });
     if (!originalArtifact) throw new Error('Original file artifact not found');
 
-    const originalLocalPath = storage.getLocalPath(originalArtifact.storagePath);
+    // Download original file from web service to worker tmp
+    const originalLocalPath = path.join(tmpDir, 'original_input' + path.extname(job.originalFileName || '.bin'));
+    await log.info('start', `Downloading file from web service...`);
+    await downloadFileFromWeb(originalArtifact.storagePath, originalLocalPath);
+    await log.info('start', `File downloaded to worker`);
+
     const mode = job.processingMode as ProcessingMode;
 
     // Step 1: Convert to MP3 if video
@@ -67,7 +119,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // Save MP3 artifact
     const mp3StorageKey = `jobs/${jobId}/output.mp3`;
     const mp3Data = await fs.readFile(mp3Path);
-    await storage.save(mp3StorageKey, mp3Data);
+    await uploadArtifactToWeb(mp3StorageKey, mp3Data);
     await prisma.jobArtifact.create({
       data: {
         jobId,
@@ -235,7 +287,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // Transcript TXT
     const transcriptTxt = generateTxt(segmentsForArtifact, false);
     const txtKey = `jobs/${jobId}/transcript.txt`;
-    await storage.save(txtKey, Buffer.from(transcriptTxt, 'utf-8'));
+    await uploadArtifactToWeb(txtKey, Buffer.from(transcriptTxt, 'utf-8'));
     await prisma.jobArtifact.create({
       data: { jobId, type: 'transcript_txt', storagePath: txtKey, mimeType: 'text/plain', sizeBytes: Buffer.byteLength(transcriptTxt) },
     });
@@ -243,7 +295,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // Transcript JSON
     const transcriptJson = generateJson(segmentsForArtifact, metadata);
     const jsonKey = `jobs/${jobId}/transcript.json`;
-    await storage.save(jsonKey, Buffer.from(transcriptJson, 'utf-8'));
+    await uploadArtifactToWeb(jsonKey, Buffer.from(transcriptJson, 'utf-8'));
     await prisma.jobArtifact.create({
       data: { jobId, type: 'transcript_json', storagePath: jsonKey, mimeType: 'application/json', sizeBytes: Buffer.byteLength(transcriptJson) },
     });
@@ -251,7 +303,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // SRT
     const srtContent = generateSrt(segmentsForArtifact, false);
     const srtKey = `jobs/${jobId}/subtitles.srt`;
-    await storage.save(srtKey, Buffer.from(srtContent, 'utf-8'));
+    await uploadArtifactToWeb(srtKey, Buffer.from(srtContent, 'utf-8'));
     await prisma.jobArtifact.create({
       data: { jobId, type: 'srt', storagePath: srtKey, mimeType: 'application/x-subrip', sizeBytes: Buffer.byteLength(srtContent) },
     });
@@ -259,7 +311,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // VTT
     const vttContent = generateVtt(segmentsForArtifact, false);
     const vttKey = `jobs/${jobId}/subtitles.vtt`;
-    await storage.save(vttKey, Buffer.from(vttContent, 'utf-8'));
+    await uploadArtifactToWeb(vttKey, Buffer.from(vttContent, 'utf-8'));
     await prisma.jobArtifact.create({
       data: { jobId, type: 'vtt', storagePath: vttKey, mimeType: 'text/vtt', sizeBytes: Buffer.byteLength(vttContent) },
     });
@@ -268,14 +320,14 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     if (translatedSegments) {
       const translationTxt = generateTxt(segmentsForArtifact, true);
       const tTxtKey = `jobs/${jobId}/translation.txt`;
-      await storage.save(tTxtKey, Buffer.from(translationTxt, 'utf-8'));
+      await uploadArtifactToWeb(tTxtKey, Buffer.from(translationTxt, 'utf-8'));
       await prisma.jobArtifact.create({
         data: { jobId, type: 'translation_txt', storagePath: tTxtKey, mimeType: 'text/plain', sizeBytes: Buffer.byteLength(translationTxt) },
       });
 
       const translationJson = generateJson(segmentsForArtifact, { ...metadata, targetLanguage: job.targetLanguage || undefined });
       const tJsonKey = `jobs/${jobId}/translation.json`;
-      await storage.save(tJsonKey, Buffer.from(translationJson, 'utf-8'));
+      await uploadArtifactToWeb(tJsonKey, Buffer.from(translationJson, 'utf-8'));
       await prisma.jobArtifact.create({
         data: { jobId, type: 'translation_json', storagePath: tJsonKey, mimeType: 'application/json', sizeBytes: Buffer.byteLength(translationJson) },
       });
