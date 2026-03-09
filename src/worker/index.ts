@@ -59,7 +59,7 @@ async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<vo
       'Content-Type': 'application/octet-stream',
       'x-storage-key': storageKey,
     },
-    body: data,
+    body: new Uint8Array(data),
   });
 
   if (!response.ok) {
