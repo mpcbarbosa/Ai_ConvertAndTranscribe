@@ -31,18 +31,19 @@ export function getMediaInfo(filePath: string): Promise<MediaInfo> {
 }
 
 /**
- * Convert video to MP3 with audio normalization
+ * Convert video/audio to MP3.
+ * Optimized for low memory: no loudnorm (2-pass), simple stream copy where possible.
+ * Uses -threads 1 to limit CPU/memory on small instances.
  */
 export function convertToMp3(inputPath: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .noVideo()
       .audioCodec('libmp3lame')
-      .audioBitrate('192k')
+      .audioBitrate('128k')
       .audioFrequency(44100)
       .audioChannels(2)
-      // Normalize audio levels
-      .audioFilters('loudnorm=I=-16:TP=-1.5:LRA=11')
+      .outputOptions(['-threads', '1'])
       .output(outputPath)
       .on('end', () => resolve())
       .on('error', (err: Error) => reject(err))
@@ -51,8 +52,9 @@ export function convertToMp3(inputPath: string, outputPath: string): Promise<voi
 }
 
 /**
- * Normalize audio for better transcription accuracy
- * Output as WAV 16kHz mono (optimal for Whisper)
+ * Normalize audio for transcription: 16kHz mono WAV.
+ * Optimized for low memory: removed loudnorm (requires 2-pass buffering).
+ * Simple highpass/lowpass filters are stream-based and memory-efficient.
  */
 export function normalizeForTranscription(inputPath: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -62,10 +64,11 @@ export function normalizeForTranscription(inputPath: string, outputPath: string)
       .audioFrequency(16000)
       .audioChannels(1)
       .audioFilters([
-        'loudnorm=I=-16:TP=-1.5:LRA=11',
         'highpass=f=80',
         'lowpass=f=8000',
+        'volume=1.5',
       ])
+      .outputOptions(['-threads', '1'])
       .output(outputPath)
       .on('end', () => resolve())
       .on('error', (err: Error) => reject(err))
@@ -83,7 +86,6 @@ export interface ChunkInfo {
 
 /**
  * Split audio into chunks with overlap for transcription.
- * Uses 10-minute chunks with 15-second overlap for context continuity.
  */
 export async function splitIntoChunks(
   inputPath: string,
@@ -95,7 +97,7 @@ export async function splitIntoChunks(
   } = {}
 ): Promise<ChunkInfo[]> {
   const {
-    chunkDurationSeconds = 600, // 10 minutes
+    chunkDurationSeconds = 600,
     overlapSeconds = 15,
     maxChunks = 50,
   } = options;
@@ -103,7 +105,6 @@ export async function splitIntoChunks(
   const info = await getMediaInfo(inputPath);
   const totalDuration = info.durationSeconds;
 
-  // If short enough, no splitting needed
   if (totalDuration <= chunkDurationSeconds + overlapSeconds) {
     return [{
       index: 0,
@@ -128,9 +129,11 @@ export async function splitIntoChunks(
       ffmpeg(inputPath)
         .setStartTime(start)
         .duration(end - start)
+        .noVideo()
         .audioCodec('pcm_s16le')
         .audioFrequency(16000)
         .audioChannels(1)
+        .outputOptions(['-threads', '1'])
         .output(chunkPath)
         .on('end', () => resolve())
         .on('error', (err: Error) => reject(err))
@@ -145,7 +148,7 @@ export async function splitIntoChunks(
       durationSeconds: end - start,
     });
 
-    start += chunkDurationSeconds; // Advance by chunk size (overlap handled by extension)
+    start += chunkDurationSeconds;
     index++;
   }
 

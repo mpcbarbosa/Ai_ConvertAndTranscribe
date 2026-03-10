@@ -102,19 +102,28 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     const mode = job.processingMode as ProcessingMode;
 
-    // Step 1: Convert to MP3 if video
+    // Step 1: Normalize audio for transcription first (16kHz mono WAV — small and memory-efficient)
     await updateJobStatus(jobId, 'converting');
-    await log.info('converting', 'Converting to MP3...');
+    await log.info('converting', 'Normalizing audio for transcription...');
 
+    const normalizedPath = path.join(tmpDir, 'normalized.wav');
+    await normalizeForTranscription(originalLocalPath, normalizedPath);
+
+    // Delete original to free disk/memory
+    await cleanupFiles(originalLocalPath);
+
+    // Get audio duration from normalized file
+    const mediaInfo = await getMediaInfo(normalizedPath);
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { durationSeconds: mediaInfo.durationSeconds },
+    });
+    await log.info('converting', `Audio duration: ${mediaInfo.durationSeconds}s`);
+
+    // Step 2: Generate MP3 from normalized audio (much smaller input = less memory)
+    await log.info('converting', 'Generating MP3...');
     const mp3Path = path.join(tmpDir, 'output.mp3');
-    const isVideo = job.sourceType === 'video';
-
-    if (isVideo) {
-      await convertToMp3(originalLocalPath, mp3Path);
-    } else {
-      // For audio files, still produce an MP3 version
-      await convertToMp3(originalLocalPath, mp3Path);
-    }
+    await convertToMp3(normalizedPath, mp3Path);
 
     // Save MP3 artifact
     const mp3StorageKey = `jobs/${jobId}/output.mp3`;
@@ -129,24 +138,14 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
         sizeBytes: mp3Data.length,
       },
     });
+    // Free mp3 from disk
+    await cleanupFiles(mp3Path);
 
     await log.info('converting', 'MP3 conversion complete');
 
-    // Step 2: Normalize audio for transcription
+    // Step 3: Transcribe
     await updateJobStatus(jobId, 'transcribing');
-    await log.info('transcribing', 'Normalizing audio for transcription...');
-
-    const normalizedPath = path.join(tmpDir, 'normalized.wav');
-    await normalizeForTranscription(originalLocalPath, normalizedPath);
-
-    // Get audio duration
-    const mediaInfo = await getMediaInfo(normalizedPath);
-    await prisma.job.update({
-      where: { id: jobId },
-      data: { durationSeconds: mediaInfo.durationSeconds },
-    });
-
-    await log.info('transcribing', `Audio duration: ${mediaInfo.durationSeconds}s`);
+    await log.info('transcribing', 'Starting transcription...');
 
     // Step 3: Split into chunks if needed
     const chunkDir = path.join(tmpDir, 'chunks');
