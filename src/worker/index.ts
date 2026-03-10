@@ -29,11 +29,47 @@ const WEB_URL = getWebUrl();
 async function downloadFileFromWeb(storageKey: string, destPath: string): Promise<void> {
   const encodedKey = encodeURIComponent(storageKey);
   const url = `${WEB_URL}/api/internal/files/${encodedKey}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to download file: ${response.status}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
+
   await fs.mkdir(path.dirname(destPath), { recursive: true });
-  await fs.writeFile(destPath, buffer);
+
+  const DOWNLOAD_CHUNK = 40 * 1024 * 1024; // 40MB chunks
+  let offset = 0;
+  let totalSize = -1;
+  const fileHandle = await fs.open(destPath, 'w');
+
+  try {
+    while (true) {
+      const end = offset + DOWNLOAD_CHUNK - 1;
+      const response = await fetch(url, {
+        headers: { 'Range': `bytes=${offset}-${end}` },
+      });
+
+      if (!response.ok && response.status !== 206) {
+        throw new Error(`Failed to download file: ${response.status}`);
+      }
+
+      // Parse total size from Content-Range header
+      const contentRange = response.headers.get('content-range');
+      if (contentRange) {
+        const match = contentRange.match(/\/(\d+)/);
+        if (match) totalSize = parseInt(match[1]);
+      }
+
+      const chunk = Buffer.from(await response.arrayBuffer());
+      await fileHandle.write(chunk, 0, chunk.length, offset);
+      offset += chunk.length;
+
+      // If we got less than requested or no 206, we're done
+      if (response.status !== 206 || chunk.length < DOWNLOAD_CHUNK) {
+        break;
+      }
+
+      // Safety: if we know total size and reached it
+      if (totalSize > 0 && offset >= totalSize) break;
+    }
+  } finally {
+    await fileHandle.close();
+  }
 }
 
 async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<void> {
