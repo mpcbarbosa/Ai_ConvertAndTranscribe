@@ -115,7 +115,19 @@
     "download_translation_json": "Traduction (JSON)",
     "download_srt": "Sous-titres (SRT)",
     "download_vtt": "Sous-titres (VTT)",
-    "loading": "Chargement des détails..."
+    "loading": "Chargement des détails...",
+    "report": "Rapport de Réunion",
+    "no_report": "Rapport de réunion pas encore disponible",
+    "download_report": "Rapport de Réunion (MD)",
+    "cancel": "Annuler le Travail",
+    "cancel_confirm": "Êtes-vous sûr de vouloir annuler ce travail ?",
+    "cancelling": "Annulation...",
+    "cancel_success": "Annulation demandée",
+    "timings": "Temps de Traitement",
+    "timing_stage": "Étape",
+    "timing_duration": "Durée",
+    "timing_total": "Temps Total de Traitement",
+    "progress": "Progrès"
   },
   "status": {
     "uploaded": "Téléchargé",
@@ -126,7 +138,9 @@
     "translating": "Traduction",
     "generating_outputs": "Génération des résultats",
     "completed": "Terminé",
-    "failed": "Échoué"
+    "failed": "Échoué",
+    "generating_report": "Génération du Rapport",
+    "cancelled": "Annulé"
   },
   "mode": {
     "best_quality": "Meilleure Qualité",

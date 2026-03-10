@@ -9,16 +9,10 @@ export async function GET(
     const job = await prisma.job.findUnique({
       where: { id: params.id },
       include: {
-        artifacts: {
-          orderBy: { createdAt: 'asc' },
-        },
-        segments: {
-          orderBy: { segmentIndex: 'asc' },
-          take: 500,
-        },
-        logs: {
-          orderBy: { createdAt: 'asc' },
-        },
+        artifacts: { orderBy: { createdAt: 'asc' } },
+        segments: { orderBy: { segmentIndex: 'asc' }, take: 500 },
+        logs: { orderBy: { createdAt: 'asc' } },
+        timings: { orderBy: { startedAt: 'asc' } },
       },
     });
 
@@ -26,7 +20,6 @@ export async function GET(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Serialize BigInt values
     const serialized = {
       ...job,
       originalFileSize: job.originalFileSize.toString(),

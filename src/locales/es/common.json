@@ -115,7 +115,19 @@
     "download_translation_json": "Traducción (JSON)",
     "download_srt": "Subtítulos (SRT)",
     "download_vtt": "Subtítulos (VTT)",
-    "loading": "Cargando detalles del trabajo..."
+    "loading": "Cargando detalles del trabajo...",
+    "report": "Informe de Reunión",
+    "no_report": "Informe de reunión aún no disponible",
+    "download_report": "Informe de Reunión (MD)",
+    "cancel": "Cancelar Trabajo",
+    "cancel_confirm": "¿Estás seguro de que deseas cancelar este trabajo?",
+    "cancelling": "Cancelando...",
+    "cancel_success": "Cancelación solicitada",
+    "timings": "Tiempos de Procesamiento",
+    "timing_stage": "Etapa",
+    "timing_duration": "Duración",
+    "timing_total": "Tiempo Total de Procesamiento",
+    "progress": "Progreso"
   },
   "status": {
     "uploaded": "Subido",
@@ -126,7 +138,9 @@
     "translating": "Traduciendo",
     "generating_outputs": "Generando Resultados",
     "completed": "Completado",
-    "failed": "Fallido"
+    "failed": "Fallido",
+    "generating_report": "Generando Informe",
+    "cancelled": "Cancelado"
   },
   "mode": {
     "best_quality": "Mejor Calidad",

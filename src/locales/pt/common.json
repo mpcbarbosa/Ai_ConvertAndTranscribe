@@ -115,7 +115,19 @@
     "download_translation_json": "Tradução (JSON)",
     "download_srt": "Legendas (SRT)",
     "download_vtt": "Legendas (VTT)",
-    "loading": "Carregando detalhes do trabalho..."
+    "loading": "Carregando detalhes do trabalho...",
+    "report": "Relatório da Reunião",
+    "no_report": "Relatório da reunião ainda não disponível",
+    "download_report": "Relatório da Reunião (MD)",
+    "cancel": "Cancelar Trabalho",
+    "cancel_confirm": "Tem certeza que deseja cancelar este trabalho?",
+    "cancelling": "Cancelando...",
+    "cancel_success": "Cancelamento solicitado",
+    "timings": "Tempos de Processamento",
+    "timing_stage": "Etapa",
+    "timing_duration": "Duração",
+    "timing_total": "Tempo Total de Processamento",
+    "progress": "Progresso"
   },
   "status": {
     "uploaded": "Enviado",
@@ -126,7 +138,9 @@
     "translating": "Traduzindo",
     "generating_outputs": "Gerando Resultados",
     "completed": "Concluído",
-    "failed": "Falhou"
+    "failed": "Falhou",
+    "generating_report": "Gerando Relatório",
+    "cancelled": "Cancelado"
   },
   "mode": {
     "best_quality": "Melhor Qualidade",

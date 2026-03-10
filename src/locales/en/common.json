@@ -115,7 +115,19 @@
     "download_translation_json": "Translation (JSON)",
     "download_srt": "Subtitles (SRT)",
     "download_vtt": "Subtitles (VTT)",
-    "loading": "Loading job details..."
+    "loading": "Loading job details...",
+    "report": "Meeting Report",
+    "no_report": "Meeting report not yet available",
+    "download_report": "Meeting Report (MD)",
+    "cancel": "Cancel Job",
+    "cancel_confirm": "Are you sure you want to cancel this job?",
+    "cancelling": "Cancelling...",
+    "cancel_success": "Cancellation requested",
+    "timings": "Processing Times",
+    "timing_stage": "Stage",
+    "timing_duration": "Duration",
+    "timing_total": "Total Processing Time",
+    "progress": "Progress"
   },
   "status": {
     "uploaded": "Uploaded",
@@ -126,7 +138,9 @@
     "translating": "Translating",
     "generating_outputs": "Generating Outputs",
     "completed": "Completed",
-    "failed": "Failed"
+    "failed": "Failed",
+    "generating_report": "Generating Report",
+    "cancelled": "Cancelled"
   },
   "mode": {
     "best_quality": "Best Quality",

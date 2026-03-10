@@ -15,8 +15,10 @@ enum JobStatus {
   post_processing
   translating
   generating_outputs
+  generating_report
   completed
   failed
+  cancelled
 }
 
 enum ProcessingMode {
@@ -38,6 +40,7 @@ enum ArtifactType {
   translation_json
   srt
   vtt
+  meeting_report
 }
 
 enum LogLevel {
@@ -53,15 +56,19 @@ model Job {
   originalMimeType String
   originalFileSize BigInt
   sourceType       SourceType
-  sourceLanguage   String?        // user-selected or null for auto-detect
-  detectedLanguage String?        // what was actually detected
-  targetLanguage   String?        // translation target
+  sourceLanguage   String?
+  detectedLanguage String?
+  targetLanguage   String?
   uiLanguage       String         @default("en")
   processingMode   ProcessingMode @default(balanced)
   status           JobStatus      @default(uploaded)
   providerUsed     String?
   durationSeconds  Float?
   errorMessage     String?
+  meetingReport    String?        // AI-generated meeting report
+  progress         Int            @default(0) // 0-100 overall progress
+  currentStage     String?        // current stage description
+  cancelRequested  Boolean        @default(false)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   completedAt      DateTime?
@@ -69,6 +76,7 @@ model Job {
   artifacts        JobArtifact[]
   segments         TranscriptSegment[]
   logs             ProcessingLog[]
+  timings          StageTiming[]
 
   @@index([status])
   @@index([createdAt])
@@ -120,4 +128,18 @@ model ProcessingLog {
 
   @@index([jobId])
   @@index([jobId, stage])
+}
+
+model StageTiming {
+  id          String   @id @default(cuid())
+  jobId       String
+  stage       String
+  startedAt   DateTime
+  completedAt DateTime?
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }
