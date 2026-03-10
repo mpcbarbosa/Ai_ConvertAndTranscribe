@@ -48,7 +48,8 @@
     "error": "Failed to upload file. Please try again.",
     "disclaimer": "Automated transcription may contain errors. Always review the output for accuracy.",
     "cloud_import": "Or import from cloud storage",
-    "or_configure": "Configure transcription options"
+    "or_configure": "Configure transcription options",
+    "uploading_progress": "Uploading... {percent}%"
   },
   "jobs": {
     "title": "My Jobs",

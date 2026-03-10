@@ -40,6 +40,7 @@ export function UploadForm({ locale, dict }: Props) {
   const [targetLanguage, setTargetLanguage] = useState('');
   const [processingMode, setProcessingMode] = useState<'balanced' | 'best_quality'>('balanced');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -71,6 +72,7 @@ export function UploadForm({ locale, dict }: Props) {
     }
 
     setIsSubmitting(true);
+    setUploadProgress(0);
     setError(null);
 
     try {
@@ -80,32 +82,54 @@ export function UploadForm({ locale, dict }: Props) {
       formData.append('uiLanguage', locale);
 
       if (sourceLanguage) formData.append('sourceLanguage', sourceLanguage);
-      // Only send targetLanguage if different from source (skip pointless translation)
       if (targetLanguage && targetLanguage !== sourceLanguage) {
         formData.append('targetLanguage', targetLanguage);
       }
 
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
+      // Use XMLHttpRequest for upload progress tracking
+      const result = await new Promise<{ id: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            setUploadProgress(pct);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error('Invalid server response'));
+            }
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              reject(new Error(data.error || 'Upload failed'));
+            } catch {
+              reject(new Error(`Upload failed (${xhr.status})`));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+        xhr.open('POST', '/api/upload');
+        xhr.send(formData);
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Upload failed');
-      }
-
-      const data = await response.json();
       setSuccess(true);
-
-      // Redirect to job detail after short delay
       setTimeout(() => {
-        router.push(`/${locale}/jobs/${data.id}`);
+        router.push(`/${locale}/jobs/${result.id}`);
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('upload.error'));
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
@@ -277,20 +301,37 @@ export function UploadForm({ locale, dict }: Props) {
         </div>
 
         {/* Submit */}
-        <button
-          onClick={handleSubmit}
-          disabled={!file || isSubmitting || success}
-          className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t('upload.submitting')}
-            </span>
-          ) : (
-            t('upload.submit')
+        <div className="space-y-2">
+          <button
+            onClick={handleSubmit}
+            disabled={!file || isSubmitting || success}
+            className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('upload.submitting')} {uploadProgress > 0 && `${uploadProgress}%`}
+              </span>
+            ) : (
+              t('upload.submit')
+            )}
+          </button>
+
+          {/* Upload progress bar */}
+          {isSubmitting && uploadProgress > 0 && (
+            <div className="space-y-1">
+              <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                {t('upload.uploading_progress', { percent: String(uploadProgress) })}
+              </p>
+            </div>
           )}
-        </button>
+        </div>
 
         {/* Disclaimer */}
         <p className="text-center text-xs text-muted-foreground/70">

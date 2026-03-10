@@ -48,7 +48,8 @@
     "error": "Falha ao enviar o arquivo. Por favor, tente novamente.",
     "disclaimer": "A transcrição automatizada pode conter erros. Sempre revise o resultado para garantir a precisão.",
     "cloud_import": "Ou importar do armazenamento na nuvem",
-    "or_configure": "Configure as opções de transcrição"
+    "or_configure": "Configure as opções de transcrição",
+    "uploading_progress": "A enviar... {percent}%"
   },
   "jobs": {
     "title": "Meus Trabalhos",

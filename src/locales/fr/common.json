@@ -48,7 +48,8 @@
     "error": "Échec du téléchargement. Veuillez réessayer.",
     "disclaimer": "La transcription automatisée peut contenir des erreurs. Vérifiez toujours le résultat pour en garantir la précision.",
     "cloud_import": "Ou importer depuis le stockage cloud",
-    "or_configure": "Configurez les options de transcription"
+    "or_configure": "Configurez les options de transcription",
+    "uploading_progress": "Téléchargement... {percent}%"
   },
   "jobs": {
     "title": "Mes Travaux",
