@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStorage } from '../../../../../lib/storage';
-import fs from 'fs';
-import path from 'path';
+import { createReadStream, statSync, existsSync } from 'fs';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /**
- * Internal endpoint for worker to download files.
- * Supports Range requests for chunked downloading of large files.
+ * Internal endpoint for worker to download files from web service storage.
+ * Uses streaming to avoid loading large files into memory.
+ * Supports Range requests for chunked downloading.
  */
 export async function GET(
   request: NextRequest,
@@ -14,35 +17,47 @@ export async function GET(
   try {
     const key = decodeURIComponent(params.key);
     const storage = getStorage();
+    const filePath = storage.getLocalPath(key);
 
-    if (!(await storage.exists(key))) {
+    console.log(`[internal/files] Serving file: ${key}`);
+    console.log(`[internal/files] Resolved path: ${filePath}`);
+    console.log(`[internal/files] File exists: ${existsSync(filePath)}`);
+
+    if (!existsSync(filePath)) {
+      console.error(`[internal/files] File not found: ${filePath}`);
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    const filePath = storage.getLocalPath(key);
-    const stat = fs.statSync(filePath);
+    const stat = statSync(filePath);
     const fileSize = stat.size;
+    console.log(`[internal/files] File size: ${fileSize} bytes`);
 
-    // Check for Range header (chunked download)
     const range = request.headers.get('range');
 
     if (range) {
       const match = range.match(/bytes=(\d+)-(\d*)/);
       if (match) {
         const start = parseInt(match[1]);
-        const end = match[2] ? parseInt(match[2]) : Math.min(start + 50 * 1024 * 1024 - 1, fileSize - 1); // 50MB chunks
+        const end = match[2] ? parseInt(match[2]) : Math.min(start + 40 * 1024 * 1024 - 1, fileSize - 1);
         const chunkSize = end - start + 1;
 
-        const stream = fs.createReadStream(filePath, { start, end });
-        const readable = new ReadableStream({
+        console.log(`[internal/files] Range request: ${start}-${end} (${chunkSize} bytes)`);
+
+        const stream = createReadStream(filePath, { start, end });
+        const webStream = new ReadableStream({
           start(controller) {
-            stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+            stream.on('data', (chunk: Buffer) => {
+              controller.enqueue(new Uint8Array(chunk));
+            });
             stream.on('end', () => controller.close());
             stream.on('error', (err) => controller.error(err));
           },
+          cancel() {
+            stream.destroy();
+          },
         });
 
-        return new NextResponse(readable, {
+        return new NextResponse(webStream, {
           status: 206,
           headers: {
             'Content-Type': 'application/octet-stream',
@@ -54,29 +69,24 @@ export async function GET(
       }
     }
 
-    // For small files (<50MB), return directly
-    if (fileSize < 50 * 1024 * 1024) {
-      const data = fs.readFileSync(filePath);
-      return new NextResponse(new Uint8Array(data), {
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': fileSize.toString(),
-          'Accept-Ranges': 'bytes',
-        },
-      });
-    }
+    // No Range header — stream entire file (never loads into memory)
+    console.log(`[internal/files] Full file stream (no range)`);
 
-    // For large files without Range header, stream the whole file
-    const stream = fs.createReadStream(filePath);
-    const readable = new ReadableStream({
+    const stream = createReadStream(filePath);
+    const webStream = new ReadableStream({
       start(controller) {
-        stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+        stream.on('data', (chunk: Buffer) => {
+          controller.enqueue(new Uint8Array(chunk));
+        });
         stream.on('end', () => controller.close());
         stream.on('error', (err) => controller.error(err));
       },
+      cancel() {
+        stream.destroy();
+      },
     });
 
-    return new NextResponse(readable, {
+    return new NextResponse(webStream, {
       headers: {
         'Content-Type': 'application/octet-stream',
         'Content-Length': fileSize.toString(),
@@ -84,7 +94,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error('Internal file serve error:', err);
+    console.error('[internal/files] Error:', err);
     return NextResponse.json({ error: 'Failed to read file' }, { status: 500 });
   }
 }
