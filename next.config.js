@@ -7,12 +7,6 @@ const nextConfig = {
     },
   },
   output: 'standalone',
-  api: {
-    bodyParser: {
-      sizeLimit: '500mb',
-    },
-    responseLimit: false,
-  },
 };
 
 module.exports = nextConfig;
