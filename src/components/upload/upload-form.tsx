@@ -65,6 +65,8 @@ export function UploadForm({ locale, dict }: Props) {
     },
   });
 
+  const CHUNK_SIZE = 45 * 1024 * 1024; // 45 MB per chunk (under Render's 100MB limit)
+
   const handleSubmit = async () => {
     if (!file) {
       setError(t('upload.validation.file_required'));
@@ -76,52 +78,91 @@ export function UploadForm({ locale, dict }: Props) {
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('processingMode', processingMode);
-      formData.append('uiLanguage', locale);
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-      if (sourceLanguage) formData.append('sourceLanguage', sourceLanguage);
-      if (targetLanguage && targetLanguage !== sourceLanguage) {
-        formData.append('targetLanguage', targetLanguage);
+      // Step 1: Initialize upload session
+      const initRes = await fetch('/api/upload/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          totalChunks,
+        }),
+      });
+      if (!initRes.ok) {
+        const data = await initRes.json();
+        throw new Error(data.error || 'Failed to initialize upload');
+      }
+      const { uploadId } = await initRes.json();
+
+      // Step 2: Upload chunks with progress
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunkBlob = file.slice(start, end);
+
+        const chunkForm = new FormData();
+        chunkForm.append('chunk', chunkBlob);
+        chunkForm.append('uploadId', uploadId);
+        chunkForm.append('chunkIndex', String(i));
+
+        // Use XHR for per-chunk progress
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+              const chunkProgress = (e.loaded / e.total);
+              const overallProgress = ((i + chunkProgress) / totalChunks) * 95; // 95% for upload, 5% for assembly
+              setUploadProgress(Math.round(overallProgress));
+            }
+          });
+
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else {
+              try { reject(new Error(JSON.parse(xhr.responseText).error)); }
+              catch { reject(new Error(`Chunk ${i + 1} upload failed (${xhr.status})`)); }
+            }
+          });
+
+          xhr.addEventListener('error', () => reject(new Error(`Network error on chunk ${i + 1}`)));
+          xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+          xhr.open('POST', '/api/upload/chunk');
+          xhr.send(chunkForm);
+        });
       }
 
-      // Use XMLHttpRequest for upload progress tracking
-      const result = await new Promise<{ id: string }>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            setUploadProgress(pct);
-          }
-        });
-
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              reject(new Error('Invalid server response'));
-            }
-          } else {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              reject(new Error(data.error || 'Upload failed'));
-            } catch {
-              reject(new Error(`Upload failed (${xhr.status})`));
-            }
-          }
-        });
-
-        xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
-        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
-
-        xhr.open('POST', '/api/upload');
-        xhr.send(formData);
+      // Step 3: Complete upload — reassemble and create job
+      setUploadProgress(97);
+      const completeRes = await fetch('/api/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          totalChunks,
+          sourceLanguage: sourceLanguage || null,
+          targetLanguage: (targetLanguage && targetLanguage !== sourceLanguage) ? targetLanguage : null,
+          processingMode,
+          uiLanguage: locale,
+        }),
       });
 
+      if (!completeRes.ok) {
+        const data = await completeRes.json();
+        throw new Error(data.error || 'Failed to complete upload');
+      }
+
+      const result = await completeRes.json();
+      setUploadProgress(100);
       setSuccess(true);
+
       setTimeout(() => {
         router.push(`/${locale}/jobs/${result.id}`);
       }, 1500);
