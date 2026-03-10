@@ -40,10 +40,12 @@ export function convertToMp3(inputPath: string, outputPath: string): Promise<voi
     ffmpeg(inputPath)
       .noVideo()
       .audioCodec('libmp3lame')
-      .audioBitrate('128k')
-      .audioFrequency(44100)
-      .audioChannels(2)
-      .outputOptions(['-threads', '1'])
+      .audioChannels(1)        // Mono — halves file size, fine for speech
+      .audioFrequency(22050)   // 22kHz — sufficient for speech
+      .outputOptions([
+        '-b:a', '64k',         // 64kbps mono — excellent for voice, small files
+        '-threads', '1',
+      ])
       .output(outputPath)
       .on('end', () => resolve())
       .on('error', (err: Error) => reject(err))

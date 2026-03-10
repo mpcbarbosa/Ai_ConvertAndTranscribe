@@ -79,7 +79,10 @@ export function UploadForm({ locale, dict }: Props) {
       formData.append('uiLanguage', locale);
 
       if (sourceLanguage) formData.append('sourceLanguage', sourceLanguage);
-      if (targetLanguage) formData.append('targetLanguage', targetLanguage);
+      // Only send targetLanguage if different from source (skip pointless translation)
+      if (targetLanguage && targetLanguage !== sourceLanguage) {
+        formData.append('targetLanguage', targetLanguage);
+      }
 
       const response = await fetch('/api/upload', {
         method: 'POST',
