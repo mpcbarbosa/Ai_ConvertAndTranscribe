@@ -171,11 +171,14 @@ export function JobDetail({ locale, dict, jobId }: Props) {
 
   const currentStepIndex = STATUS_STEPS.indexOf(job.status);
   const downloadableArtifacts = job.artifacts.filter(a => a.type !== 'original');
+  const hasTranslation = job.segments.some(s => s.translatedText);
+  const effectiveSource = job.detectedLanguage || job.sourceLanguage;
+  const translationRequested = job.targetLanguage && job.targetLanguage !== effectiveSource;
 
   const tabs = [
     { key: 'overview', label: t('job_detail.overview') },
     { key: 'transcript', label: t('job_detail.transcript') },
-    ...(job.targetLanguage ? [{ key: 'translation', label: t('job_detail.translation') }] : []),
+    ...(hasTranslation || translationRequested ? [{ key: 'translation', label: t('job_detail.translation') }] : []),
     { key: 'segments', label: t('job_detail.segments') },
     { key: 'downloads', label: t('job_detail.downloads') },
     { key: 'logs', label: t('job_detail.logs') },

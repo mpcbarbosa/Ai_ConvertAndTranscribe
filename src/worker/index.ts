@@ -102,28 +102,12 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     const mode = job.processingMode as ProcessingMode;
 
-    // Step 1: Normalize audio for transcription first (16kHz mono WAV — small and memory-efficient)
+    // Step 1: Generate MP3 directly from original file (preserves quality, proper compression)
     await updateJobStatus(jobId, 'converting');
-    await log.info('converting', 'Normalizing audio for transcription...');
+    await log.info('converting', 'Generating MP3 from original...');
 
-    const normalizedPath = path.join(tmpDir, 'normalized.wav');
-    await normalizeForTranscription(originalLocalPath, normalizedPath);
-
-    // Delete original to free disk/memory
-    await cleanupFiles(originalLocalPath);
-
-    // Get audio duration from normalized file
-    const mediaInfo = await getMediaInfo(normalizedPath);
-    await prisma.job.update({
-      where: { id: jobId },
-      data: { durationSeconds: mediaInfo.durationSeconds },
-    });
-    await log.info('converting', `Audio duration: ${mediaInfo.durationSeconds}s`);
-
-    // Step 2: Generate MP3 from normalized audio (much smaller input = less memory)
-    await log.info('converting', 'Generating MP3...');
     const mp3Path = path.join(tmpDir, 'output.mp3');
-    await convertToMp3(normalizedPath, mp3Path);
+    await convertToMp3(originalLocalPath, mp3Path);
 
     // Save MP3 artifact
     const mp3StorageKey = `jobs/${jobId}/output.mp3`;
@@ -138,10 +122,24 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
         sizeBytes: mp3Data.length,
       },
     });
-    // Free mp3 from disk
     await cleanupFiles(mp3Path);
+    await log.info('converting', `MP3 generated: ${(mp3Data.length / 1024 / 1024).toFixed(1)} MB`);
 
-    await log.info('converting', 'MP3 conversion complete');
+    // Step 2: Normalize audio for transcription (16kHz mono WAV)
+    await log.info('converting', 'Normalizing audio for transcription...');
+    const normalizedPath = path.join(tmpDir, 'normalized.wav');
+    await normalizeForTranscription(originalLocalPath, normalizedPath);
+
+    // Delete original to free disk space
+    await cleanupFiles(originalLocalPath);
+
+    // Get audio duration
+    const mediaInfo = await getMediaInfo(normalizedPath);
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { durationSeconds: mediaInfo.durationSeconds },
+    });
+    await log.info('converting', `Audio duration: ${mediaInfo.durationSeconds}s`);
 
     // Step 3: Transcribe
     await updateJobStatus(jobId, 'transcribing');
@@ -213,8 +211,23 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await updateJobStatus(jobId, 'post_processing');
     await log.info('post_processing', 'Post-processing transcript...');
 
-    const effectiveLanguage = detectedLanguage || job.sourceLanguage || 'en';
+    // Normalize detected language to 2-letter code
+    const langCodeMap: Record<string, string> = {
+      'portuguese': 'pt', 'english': 'en', 'spanish': 'es', 'french': 'fr',
+      'pt': 'pt', 'en': 'en', 'es': 'es', 'fr': 'fr',
+    };
+    const effectiveLanguage = langCodeMap[(detectedLanguage || '').toLowerCase()]
+      || langCodeMap[(job.sourceLanguage || '').toLowerCase()]
+      || job.sourceLanguage
+      || detectedLanguage
+      || 'en';
     mergedSegments = await postProcessTranscript(mergedSegments, mode, effectiveLanguage);
+
+    // Update detected language in DB with normalized code
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { detectedLanguage: effectiveLanguage },
+    });
 
     // Save segments to database
     for (let i = 0; i < mergedSegments.length; i++) {
@@ -234,10 +247,14 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     await log.info('post_processing', 'Transcript post-processing complete');
 
-    // Step 7: Translation
+    // Step 7: Translation (only if target language is set AND different from source)
     let translatedSegments: Array<{ sourceText: string; translatedText: string; startMs: number; endMs: number }> | null = null;
 
-    if (job.targetLanguage && job.targetLanguage !== effectiveLanguage) {
+    const shouldTranslate = job.targetLanguage
+      && job.targetLanguage !== effectiveLanguage
+      && job.targetLanguage !== job.sourceLanguage;
+
+    if (shouldTranslate) {
       await updateJobStatus(jobId, 'translating');
       await log.info('translating', `Translating to ${job.targetLanguage}...`);
 
@@ -264,6 +281,8 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
       }
 
       await log.info('translating', 'Translation complete');
+    } else {
+      await log.info('translating', 'Translation skipped — source and target language are the same or no target set');
     }
 
     // Step 8: Generate output artifacts
