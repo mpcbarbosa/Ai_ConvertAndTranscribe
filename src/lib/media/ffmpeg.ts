@@ -43,7 +43,7 @@ export function convertToMp3(inputPath: string, outputPath: string): Promise<voi
       .audioChannels(1)        // Mono — halves file size, fine for speech
       .audioFrequency(22050)   // 22kHz — sufficient for speech
       .outputOptions([
-        '-b:a', '64k',         // 64kbps mono — excellent for voice, small files
+        '-b:a', '32k',         // 32kbps mono — optimized for voice, very small files
         '-threads', '1',
       ])
       .output(outputPath)
