@@ -46,7 +46,9 @@
     },
     "success": "File uploaded successfully! Your transcription job has been queued.",
     "error": "Failed to upload file. Please try again.",
-    "disclaimer": "Automated transcription may contain errors. Always review the output for accuracy."
+    "disclaimer": "Automated transcription may contain errors. Always review the output for accuracy.",
+    "cloud_import": "Or import from cloud storage",
+    "or_configure": "Configure transcription options"
   },
   "jobs": {
     "title": "My Jobs",

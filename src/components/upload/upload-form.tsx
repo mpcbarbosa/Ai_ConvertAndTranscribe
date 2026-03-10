@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDropzone } from 'react-dropzone';
 import { createTranslator } from '../../lib/i18n';
 import { formatBytes } from '../../lib/utils';
 import type { Locale } from '../../types';
+import { CloudPickers } from './cloud-pickers';
 import {
   Upload,
   FileAudio,
@@ -31,7 +32,7 @@ const SUPPORTED_EXTENSIONS = [
 const MAX_SIZE = parseInt(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB || '500') * 1024 * 1024 || 500 * 1024 * 1024;
 
 export function UploadForm({ locale, dict }: Props) {
-  const t = createTranslator(dict);
+  const t = useMemo(() => createTranslator(dict), [dict]);
   const router = useRouter();
 
   const [file, setFile] = useState<File | null>(null);
@@ -183,6 +184,20 @@ export function UploadForm({ locale, dict }: Props) {
               </p>
             </div>
           )}
+        </div>
+
+        {/* Cloud Import */}
+        <CloudPickers
+          onFileSelected={(f) => { setError(null); setFile(f); }}
+          onError={(err) => setError(err)}
+          disabled={isSubmitting || success}
+          t={t}
+        />
+
+        {/* Divider */}
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/60" /></div>
+          <div className="relative flex justify-center"><span className="bg-gradient-to-br from-slate-50 to-blue-50/30 px-3 text-xs text-muted-foreground">{t('upload.or_configure')}</span></div>
         </div>
 
         {/* Source Language */}

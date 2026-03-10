@@ -46,7 +46,9 @@
     },
     "success": "¡Archivo subido con éxito! Tu trabajo de transcripción ha sido puesto en cola.",
     "error": "Error al subir el archivo. Por favor, inténtalo de nuevo.",
-    "disclaimer": "La transcripción automatizada puede contener errores. Siempre revisa el resultado para verificar la precisión."
+    "disclaimer": "La transcripción automatizada puede contener errores. Siempre revisa el resultado para verificar la precisión.",
+    "cloud_import": "O importar desde almacenamiento en la nube",
+    "or_configure": "Configure las opciones de transcripción"
   },
   "jobs": {
     "title": "Mis Trabajos",

@@ -46,7 +46,9 @@
     },
     "success": "Arquivo enviado com sucesso! Seu trabalho de transcrição foi enfileirado.",
     "error": "Falha ao enviar o arquivo. Por favor, tente novamente.",
-    "disclaimer": "A transcrição automatizada pode conter erros. Sempre revise o resultado para garantir a precisão."
+    "disclaimer": "A transcrição automatizada pode conter erros. Sempre revise o resultado para garantir a precisão.",
+    "cloud_import": "Ou importar do armazenamento na nuvem",
+    "or_configure": "Configure as opções de transcrição"
   },
   "jobs": {
     "title": "Meus Trabalhos",
