@@ -262,7 +262,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
       const translationResult = await translator.translate(
         mergedSegments,
         effectiveLanguage,
-        job.targetLanguage
+        job.targetLanguage!
       );
 
       translatedSegments = translationResult.segments;
