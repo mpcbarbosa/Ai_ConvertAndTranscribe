@@ -26,9 +26,28 @@ function getWebUrl(): string {
 
 const WEB_URL = getWebUrl();
 
+async function fetchWithRetry(url: string, options: RequestInit = {}, maxRetries = 5): Promise<Response> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status === 502 || response.status === 503) {
+        console.log(`[download] Got ${response.status}, retrying in ${(attempt + 1) * 5}s (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+        continue;
+      }
+      return response;
+    } catch (err) {
+      if (attempt === maxRetries - 1) throw err;
+      console.log(`[download] Fetch error, retrying in ${(attempt + 1) * 5}s`);
+      await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
 async function downloadFileFromWeb(storageKey: string, destPath: string): Promise<void> {
-  const encodedKey = encodeURIComponent(storageKey);
-  const url = `${WEB_URL}/api/internal/files/${encodedKey}`;
+  // Use query param to avoid URL encoding issues with slashes in storage keys
+  const url = `${WEB_URL}/api/internal/files/download?key=${encodeURIComponent(storageKey)}`;
 
   await fs.mkdir(path.dirname(destPath), { recursive: true });
 
@@ -40,15 +59,15 @@ async function downloadFileFromWeb(storageKey: string, destPath: string): Promis
   try {
     while (true) {
       const end = offset + DOWNLOAD_CHUNK - 1;
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         headers: { 'Range': `bytes=${offset}-${end}` },
       });
 
       if (!response.ok && response.status !== 206) {
-        throw new Error(`Failed to download file: ${response.status}`);
+        const body = await response.text().catch(() => '');
+        throw new Error(`Failed to download file: ${response.status} - ${body.substring(0, 200)}`);
       }
 
-      // Parse total size from Content-Range header
       const contentRange = response.headers.get('content-range');
       if (contentRange) {
         const match = contentRange.match(/\/(\d+)/);
@@ -59,12 +78,9 @@ async function downloadFileFromWeb(storageKey: string, destPath: string): Promis
       await fileHandle.write(chunk, 0, chunk.length, offset);
       offset += chunk.length;
 
-      // If we got less than requested or no 206, we're done
-      if (response.status !== 206 || chunk.length < DOWNLOAD_CHUNK) {
-        break;
-      }
+      console.log(`[download] Downloaded ${(offset / 1024 / 1024).toFixed(1)} MB${totalSize > 0 ? ` / ${(totalSize / 1024 / 1024).toFixed(1)} MB` : ''}`);
 
-      // Safety: if we know total size and reached it
+      if (response.status !== 206 || chunk.length < DOWNLOAD_CHUNK) break;
       if (totalSize > 0 && offset >= totalSize) break;
     }
   } finally {

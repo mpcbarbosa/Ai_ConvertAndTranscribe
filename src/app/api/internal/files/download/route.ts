@@ -6,34 +6,29 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Internal endpoint for worker to download files.
- * Key can come from URL param OR query param (?key=...) for paths with slashes.
- * Supports Range requests for chunked download of large files.
+ * Download endpoint using query param for storage key.
+ * Usage: GET /api/internal/files/download?key=uploads/uuid/filename.mp4
+ * Supports Range requests for chunked downloading.
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { key: string } }
-) {
+export async function GET(request: NextRequest) {
   try {
-    // Support key from query param (safer for paths with slashes)
-    const queryKey = request.nextUrl.searchParams.get('key');
-    const key = queryKey || decodeURIComponent(params.key);
+    const key = request.nextUrl.searchParams.get('key');
+    if (!key) {
+      return NextResponse.json({ error: 'Missing key parameter' }, { status: 400 });
+    }
 
     const storage = getStorage();
     const filePath = storage.getLocalPath(key);
 
-    console.log(`[internal/files] Key: ${key}`);
-    console.log(`[internal/files] Path: ${filePath}`);
-    console.log(`[internal/files] Exists: ${existsSync(filePath)}`);
+    console.log(`[files/download] Key: ${key}, Path: ${filePath}, Exists: ${existsSync(filePath)}`);
 
     if (!existsSync(filePath)) {
-      console.error(`[internal/files] NOT FOUND: ${filePath}`);
-      return NextResponse.json({ error: 'File not found', key, filePath }, { status: 404 });
+      return NextResponse.json({ error: 'File not found', key }, { status: 404 });
     }
 
     const stat = statSync(filePath);
     const fileSize = stat.size;
-    console.log(`[internal/files] Size: ${fileSize}`);
+    console.log(`[files/download] Size: ${(fileSize / 1024 / 1024).toFixed(1)} MB`);
 
     const range = request.headers.get('range');
 
@@ -44,12 +39,14 @@ export async function GET(
         const end = match[2] ? parseInt(match[2]) : Math.min(start + 40 * 1024 * 1024 - 1, fileSize - 1);
         const chunkSize = end - start + 1;
 
+        console.log(`[files/download] Range: ${start}-${end} (${(chunkSize / 1024 / 1024).toFixed(1)} MB)`);
+
         const stream = createReadStream(filePath, { start, end });
         const webStream = new ReadableStream({
           start(controller) {
-            stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+            stream.on('data', (c: Buffer) => controller.enqueue(new Uint8Array(c)));
             stream.on('end', () => controller.close());
-            stream.on('error', (err) => controller.error(err));
+            stream.on('error', (e) => controller.error(e));
           },
           cancel() { stream.destroy(); },
         });
@@ -66,13 +63,13 @@ export async function GET(
       }
     }
 
-    // Stream full file
+    // No range — stream full file
     const stream = createReadStream(filePath);
     const webStream = new ReadableStream({
       start(controller) {
-        stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+        stream.on('data', (c: Buffer) => controller.enqueue(new Uint8Array(c)));
         stream.on('end', () => controller.close());
-        stream.on('error', (err) => controller.error(err));
+        stream.on('error', (e) => controller.error(e));
       },
       cancel() { stream.destroy(); },
     });
@@ -85,7 +82,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error('[internal/files] Error:', err);
+    console.error('[files/download] Error:', err);
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }
