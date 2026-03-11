@@ -25,24 +25,35 @@ export async function postProcessTranscript(
     }));
   }
 
-  // For best quality, use GPT to clean up in batches
+  // For best quality, use GPT to clean up in parallel batches
   const batchSize = 50;
-  const processed: TranscriptSegmentData[] = [];
+  const POST_PROCESS_CONCURRENCY = 5;
 
+  // Create all batches
+  const batches: Array<{ startIdx: number; segments: TranscriptSegmentData[] }> = [];
   for (let i = 0; i < segments.length; i += batchSize) {
-    const batch = segments.slice(i, i + batchSize);
-    const textsWithTimestamps = batch.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
+    batches.push({ startIdx: i, segments: segments.slice(i, i + batchSize) });
+  }
 
-    const langHint = language ? ` The transcript is in ${language}.` : '';
+  // Pre-allocate result array
+  const processed: TranscriptSegmentData[] = new Array(segments.length);
 
-    try {
-      const response = await client.chat.completions.create({
-        model: 'gpt-4o',  // Best quality mode uses GPT-4o for superior cleanup
-        temperature: 0.1,
-        messages: [
-          {
-            role: 'system',
-            content: `You are a professional transcript editor.${langHint} Your ONLY job is to clean up a raw speech-to-text transcript. Rules:
+  // Process batches in parallel groups
+  for (let g = 0; g < batches.length; g += POST_PROCESS_CONCURRENCY) {
+    const group = batches.slice(g, g + POST_PROCESS_CONCURRENCY);
+
+    const groupPromises = group.map(async ({ startIdx, segments: batch }) => {
+      const textsWithTimestamps = batch.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
+      const langHint = language ? ` The transcript is in ${language}.` : '';
+
+      try {
+        const response = await client.chat.completions.create({
+          model: 'gpt-4o',  // Best quality mode uses GPT-4o
+          temperature: 0.1,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a professional transcript editor.${langHint} Your ONLY job is to clean up a raw speech-to-text transcript. Rules:
 1. Fix punctuation, capitalization, and obvious spelling errors
 2. Remove repeated words/phrases that appear at segment boundaries
 3. Keep [inaudible] or [unclear] markers — NEVER invent content
@@ -50,37 +61,39 @@ export async function postProcessTranscript(
 5. Do NOT merge or split segments — keep the same number and order
 6. Return ONLY the cleaned text for each segment, one per line, prefixed with the original index [N]
 7. Preserve the original language — do NOT translate`,
-          },
-          {
-            role: 'user',
-            content: `Clean up these transcript segments:\n\n${textsWithTimestamps}`,
-          },
-        ],
-      });
+            },
+            {
+              role: 'user',
+              content: `Clean up these transcript segments:\n\n${textsWithTimestamps}`,
+            },
+          ],
+        });
 
-      const content = response.choices[0]?.message?.content || '';
-      const lines = content.split('\n').filter(l => l.trim());
-      const cleanedMap = new Map<number, string>();
+        const content = response.choices[0]?.message?.content || '';
+        const lines = content.split('\n').filter(l => l.trim());
+        const cleanedMap = new Map<number, string>();
 
-      for (const line of lines) {
-        const match = line.match(/^\[(\d+)\]\s*(.+)/);
-        if (match) {
-          cleanedMap.set(parseInt(match[1]), match[2].trim());
+        for (const line of lines) {
+          const match = line.match(/^\[(\d+)\]\s*(.+)/);
+          if (match) {
+            cleanedMap.set(parseInt(match[1]), match[2].trim());
+          }
+        }
+
+        for (let j = 0; j < batch.length; j++) {
+          processed[startIdx + j] = {
+            ...batch[j],
+            text: cleanedMap.get(j) || lightCleanup(batch[j].text),
+          };
+        }
+      } catch {
+        for (let j = 0; j < batch.length; j++) {
+          processed[startIdx + j] = { ...batch[j], text: lightCleanup(batch[j].text) };
         }
       }
+    });
 
-      for (let j = 0; j < batch.length; j++) {
-        processed.push({
-          ...batch[j],
-          text: cleanedMap.get(j) || lightCleanup(batch[j].text),
-        });
-      }
-    } catch {
-      // If GPT cleanup fails, fall back to light cleanup
-      for (const seg of batch) {
-        processed.push({ ...seg, text: lightCleanup(seg.text) });
-      }
-    }
+    await Promise.all(groupPromises);
   }
 
   return processed;

@@ -47,51 +47,60 @@ class OpenAITranslationProvider implements TranslationProvider {
     }
 
     const batchSize = 40;
-    const allTranslated: TranslationResult['segments'] = [];
+    const TRANSLATE_CONCURRENCY = 4;
 
+    // Create all batches
+    const batches: Array<{ startIdx: number; segments: TranscriptSegmentData[] }> = [];
     for (let i = 0; i < segments.length; i += batchSize) {
-      const batch = segments.slice(i, i + batchSize);
-      const numbered = batch.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
+      batches.push({ startIdx: i, segments: segments.slice(i, i + batchSize) });
+    }
 
-      const response = await this.client.chat.completions.create({
-        model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: 'system',
-            content: `You are a professional translator from ${srcLang} to ${tgtLang}. Translate each numbered line accurately while preserving meaning, tone, and formatting. Keep [inaudible] and [unclear] markers as-is. Return ONLY the translated lines, each prefixed with the original index [N]. Do NOT add explanations.`,
-          },
-          {
-            role: 'user',
-            content: numbered,
-          },
-        ],
+    // Pre-allocate results
+    const allTranslated: TranslationResult['segments'] = new Array(segments.length);
+
+    for (let g = 0; g < batches.length; g += TRANSLATE_CONCURRENCY) {
+      const group = batches.slice(g, g + TRANSLATE_CONCURRENCY);
+
+      const groupPromises = group.map(async ({ startIdx, segments: batch }) => {
+        const numbered = batch.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
+
+        const response = await this.client.chat.completions.create({
+          model,
+          temperature: 0.2,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a professional translator from ${srcLang} to ${tgtLang}. Translate each numbered line accurately while preserving meaning, tone, and formatting. Keep [inaudible] and [unclear] markers as-is. Return ONLY the translated lines, each prefixed with the original index [N]. Do NOT add explanations.`,
+            },
+            { role: 'user', content: numbered },
+          ],
+        });
+
+        const content = response.choices[0]?.message?.content || '';
+        const lines = content.split('\n').filter(l => l.trim());
+        const translatedMap = new Map<number, string>();
+
+        for (const line of lines) {
+          const match = line.match(/^\[(\d+)\]\s*(.+)/);
+          if (match) translatedMap.set(parseInt(match[1]), match[2].trim());
+        }
+
+        for (let j = 0; j < batch.length; j++) {
+          allTranslated[startIdx + j] = {
+            sourceText: batch[j].text,
+            translatedText: translatedMap.get(j) || batch[j].text,
+            startMs: batch[j].startMs,
+            endMs: batch[j].endMs,
+          };
+        }
       });
 
-      const content = response.choices[0]?.message?.content || '';
-      const lines = content.split('\n').filter(l => l.trim());
-      const translatedMap = new Map<number, string>();
-
-      for (const line of lines) {
-        const match = line.match(/^\[(\d+)\]\s*(.+)/);
-        if (match) {
-          translatedMap.set(parseInt(match[1]), match[2].trim());
-        }
-      }
-
-      for (let j = 0; j < batch.length; j++) {
-        allTranslated.push({
-          sourceText: batch[j].text,
-          translatedText: translatedMap.get(j) || batch[j].text,
-          startMs: batch[j].startMs,
-          endMs: batch[j].endMs,
-        });
-      }
+      await Promise.all(groupPromises);
     }
 
     return {
-      translatedText: allTranslated.map(s => s.translatedText).join(' '),
-      segments: allTranslated,
+      translatedText: allTranslated.filter(Boolean).map(s => s.translatedText).join(' '),
+      segments: allTranslated.filter(Boolean),
     };
   }
 }

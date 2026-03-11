@@ -356,33 +356,48 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('transcribing', `Split into ${chunks.length} chunk(s)`);
 
     const transcriber = getTranscriptionProvider();
-    const chunkResults: Array<{ segments: TranscriptSegmentData[]; offsetMs: number; overlapMs: number }> = [];
+    const TRANSCRIBE_CONCURRENCY = 4;
     let detectedLanguage: string | undefined;
+    let completedChunks = 0;
 
-    for (const chunk of chunks) {
+    // Pre-allocate results array to maintain order
+    const chunkResults: Array<{ segments: TranscriptSegmentData[]; offsetMs: number; overlapMs: number } | null> = new Array(chunks.length).fill(null);
+
+    // Process chunks in parallel batches of TRANSCRIBE_CONCURRENCY
+    for (let batchStart = 0; batchStart < chunks.length; batchStart += TRANSCRIBE_CONCURRENCY) {
       if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
 
-      const chunkProgress = STAGE_WEIGHTS.transcribing.start +
-        ((chunk.index + 1) / chunks.length) * (STAGE_WEIGHTS.transcribing.end - STAGE_WEIGHTS.transcribing.start);
-      await updateJobProgress(jobId, 'transcribing', chunkProgress, `Transcribing chunk ${chunk.index + 1}/${chunks.length}...`);
-      await log.info('transcribing', `Transcribing chunk ${chunk.index + 1}/${chunks.length}`);
+      const batch = chunks.slice(batchStart, batchStart + TRANSCRIBE_CONCURRENCY);
+      await log.info('transcribing', `Transcribing chunks ${batchStart + 1}-${Math.min(batchStart + TRANSCRIBE_CONCURRENCY, chunks.length)}/${chunks.length} (${TRANSCRIBE_CONCURRENCY} parallel)...`);
 
-      const result = await transcriber.transcribe(chunk.path, {
-        language: job.sourceLanguage || undefined, mode,
-        prompt: mode === 'best_quality'
-          ? 'Transcribe with proper punctuation, casing, and paragraph breaks. Mark unclear audio as [inaudible].'
-          : undefined,
+      const batchPromises = batch.map(async (chunk) => {
+        const result = await transcriber.transcribe(chunk.path, {
+          language: job.sourceLanguage || undefined, mode,
+          prompt: mode === 'best_quality'
+            ? 'Transcribe with proper punctuation, casing, and paragraph breaks. Mark unclear audio as [inaudible].'
+            : undefined,
+        });
+
+        if (!detectedLanguage && result.detectedLanguage) detectedLanguage = result.detectedLanguage;
+
+        chunkResults[chunk.index] = {
+          segments: result.segments,
+          offsetMs: Math.round(chunk.startSeconds * 1000),
+          overlapMs: Math.round(overlapSeconds * 1000),
+        };
+
+        completedChunks++;
+        const chunkProgress = STAGE_WEIGHTS.transcribing.start +
+          (completedChunks / chunks.length) * (STAGE_WEIGHTS.transcribing.end - STAGE_WEIGHTS.transcribing.start);
+        await updateJobProgress(jobId, 'transcribing', chunkProgress, `Transcribed ${completedChunks}/${chunks.length} chunks...`);
+        await log.info('transcribing', `Chunk ${chunk.index + 1}: ${result.segments.length} segments`);
       });
 
-      if (!detectedLanguage && result.detectedLanguage) detectedLanguage = result.detectedLanguage;
-
-      chunkResults.push({
-        segments: result.segments,
-        offsetMs: Math.round(chunk.startSeconds * 1000),
-        overlapMs: Math.round(overlapSeconds * 1000),
-      });
-      await log.info('transcribing', `Chunk ${chunk.index + 1}: ${result.segments.length} segments`);
+      await Promise.all(batchPromises);
     }
+
+    // Filter nulls (shouldn't happen but type safety)
+    const validResults = chunkResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
     const langCodeMap: Record<string, string> = {
       'portuguese': 'pt', 'english': 'en', 'spanish': 'es', 'french': 'fr',
@@ -395,7 +410,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await prisma.job.update({ where: { id: jobId }, data: { detectedLanguage: effectiveLanguage, providerUsed: transcriber.name } });
 
     await log.info('transcribing', 'Merging chunk results...');
-    let mergedSegments = mergeChunkSegments(chunkResults);
+    let mergedSegments = mergeChunkSegments(validResults);
     await log.info('transcribing', `Merged: ${mergedSegments.length} total segments`);
 
     const transcribeMs = await endStage(jobId, 'transcribing', transcribeStart);
