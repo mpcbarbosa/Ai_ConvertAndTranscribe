@@ -170,7 +170,7 @@ async function checkCancelled(jobId: string): Promise<boolean> {
 
 // --- Meeting Report Generator ---
 
-async function generateMeetingReport(transcript: string, language: string): Promise<string> {
+async function generateMeetingReport(transcript: string, language: string, mode: ProcessingMode): Promise<string> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const langNames: Record<string, string> = { pt: 'Portuguese', en: 'English', es: 'Spanish', fr: 'French' };
@@ -457,7 +457,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('generating_report', 'Generating meeting report...');
 
     const fullTranscript = mergedSegments.map(s => s.text).join(' ');
-    const meetingReport = await generateMeetingReport(fullTranscript, effectiveLanguage);
+    const meetingReport = await generateMeetingReport(fullTranscript, effectiveLanguage, mode);
 
     await prisma.job.update({ where: { id: jobId }, data: { meetingReport } });
 
