@@ -47,7 +47,7 @@ export async function GET(
         const stream = createReadStream(filePath, { start, end });
         const webStream = new ReadableStream({
           start(controller) {
-            stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+            stream.on('data', (chunk: string | Buffer) => controller.enqueue(new Uint8Array(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)));
             stream.on('end', () => controller.close());
             stream.on('error', (err) => controller.error(err));
           },
@@ -70,7 +70,7 @@ export async function GET(
     const stream = createReadStream(filePath);
     const webStream = new ReadableStream({
       start(controller) {
-        stream.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+        stream.on('data', (chunk: string | Buffer) => controller.enqueue(new Uint8Array(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)));
         stream.on('end', () => controller.close());
         stream.on('error', (err) => controller.error(err));
       },
