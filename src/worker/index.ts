@@ -26,32 +26,53 @@ function getWebUrl(): string {
 
 const WEB_URL = getWebUrl();
 
-async function fetchWithRetry(url: string, options: RequestInit = {}, maxRetries = 5): Promise<Response> {
+async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+async function downloadChunk(url: string, start: number, end: number, maxRetries = 5): Promise<{ data: Buffer; totalSize: number; status: number }> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, {
+        headers: { 'Range': `bytes=${start}-${end}` },
+      });
+
       if (response.status === 502 || response.status === 503) {
-        console.log(`[download] Got ${response.status}, retrying in ${(attempt + 1) * 5}s (attempt ${attempt + 1}/${maxRetries})`);
-        await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+        console.log(`[download] Chunk ${start}-${end}: got ${response.status}, retry ${attempt + 1}/${maxRetries}`);
+        await sleep((attempt + 1) * 5000);
         continue;
       }
-      return response;
+
+      if (!response.ok && response.status !== 206) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Download failed: ${response.status} - ${body.substring(0, 200)}`);
+      }
+
+      // Read body — this is where "terminated" errors happen
+      const data = Buffer.from(await response.arrayBuffer());
+
+      let totalSize = -1;
+      const contentRange = response.headers.get('content-range');
+      if (contentRange) {
+        const match = contentRange.match(/\/(\d+)/);
+        if (match) totalSize = parseInt(match[1]);
+      }
+
+      return { data, totalSize, status: response.status };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`[download] Chunk ${start}-${end}: error "${msg}", retry ${attempt + 1}/${maxRetries}`);
       if (attempt === maxRetries - 1) throw err;
-      console.log(`[download] Fetch error, retrying in ${(attempt + 1) * 5}s`);
-      await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+      await sleep((attempt + 1) * 3000);
     }
   }
-  throw new Error('Max retries exceeded');
+  throw new Error('Max retries exceeded for chunk download');
 }
 
 async function downloadFileFromWeb(storageKey: string, destPath: string): Promise<void> {
-  // Use query param to avoid URL encoding issues with slashes in storage keys
   const url = `${WEB_URL}/api/internal/files/download?key=${encodeURIComponent(storageKey)}`;
 
   await fs.mkdir(path.dirname(destPath), { recursive: true });
 
-  const DOWNLOAD_CHUNK = 40 * 1024 * 1024; // 40MB chunks
+  const DOWNLOAD_CHUNK = 40 * 1024 * 1024; // 40MB per chunk
   let offset = 0;
   let totalSize = -1;
   const fileHandle = await fs.open(destPath, 'w');
@@ -59,30 +80,19 @@ async function downloadFileFromWeb(storageKey: string, destPath: string): Promis
   try {
     while (true) {
       const end = offset + DOWNLOAD_CHUNK - 1;
-      const response = await fetchWithRetry(url, {
-        headers: { 'Range': `bytes=${offset}-${end}` },
-      });
+      const { data, totalSize: chunkTotal, status } = await downloadChunk(url, offset, end);
 
-      if (!response.ok && response.status !== 206) {
-        const body = await response.text().catch(() => '');
-        throw new Error(`Failed to download file: ${response.status} - ${body.substring(0, 200)}`);
-      }
+      if (chunkTotal > 0) totalSize = chunkTotal;
 
-      const contentRange = response.headers.get('content-range');
-      if (contentRange) {
-        const match = contentRange.match(/\/(\d+)/);
-        if (match) totalSize = parseInt(match[1]);
-      }
+      await fileHandle.write(data, 0, data.length, offset);
+      offset += data.length;
 
-      const chunk = Buffer.from(await response.arrayBuffer());
-      await fileHandle.write(chunk, 0, chunk.length, offset);
-      offset += chunk.length;
+      console.log(`[download] ${(offset / 1024 / 1024).toFixed(1)} MB${totalSize > 0 ? ` / ${(totalSize / 1024 / 1024).toFixed(1)} MB` : ''}`);
 
-      console.log(`[download] Downloaded ${(offset / 1024 / 1024).toFixed(1)} MB${totalSize > 0 ? ` / ${(totalSize / 1024 / 1024).toFixed(1)} MB` : ''}`);
-
-      if (response.status !== 206 || chunk.length < DOWNLOAD_CHUNK) break;
+      if (status !== 206 || data.length < DOWNLOAD_CHUNK) break;
       if (totalSize > 0 && offset >= totalSize) break;
     }
+    console.log(`[download] Complete: ${(offset / 1024 / 1024).toFixed(1)} MB`);
   } finally {
     await fileHandle.close();
   }
@@ -90,12 +100,27 @@ async function downloadFileFromWeb(storageKey: string, destPath: string): Promis
 
 async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<void> {
   const url = `${WEB_URL}/api/internal/files`;
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/octet-stream', 'x-storage-key': storageKey },
-    body: new Uint8Array(data),
-  });
-  if (!response.ok) throw new Error(`Failed to upload artifact: ${response.status}`);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream', 'x-storage-key': storageKey },
+        body: new Uint8Array(data),
+      });
+      if (response.status === 502 || response.status === 503) {
+        console.log(`[upload] Got ${response.status}, retry ${attempt + 1}/3`);
+        await sleep((attempt + 1) * 3000);
+        continue;
+      }
+      if (!response.ok) throw new Error(`Failed to upload artifact: ${response.status}`);
+      return;
+    } catch (err) {
+      if (attempt === 2) throw err;
+      console.log(`[upload] Error, retry ${attempt + 1}/3`);
+      await sleep((attempt + 1) * 3000);
+    }
+  }
 }
 
 // --- Progress & Timing Helpers ---
