@@ -41,7 +41,8 @@ export async function GET(
       const match = range.match(/bytes=(\d+)-(\d*)/);
       if (match) {
         const start = parseInt(match[1]);
-        const end = match[2] ? parseInt(match[2]) : Math.min(start + 10 * 1024 * 1024 - 1, fileSize - 1);
+        const rawEnd = match[2] ? parseInt(match[2]) : start + 10 * 1024 * 1024 - 1;
+        const end = Math.min(rawEnd, fileSize - 1);
         const chunkSize = end - start + 1;
 
         const stream = createReadStream(filePath, { start, end });
