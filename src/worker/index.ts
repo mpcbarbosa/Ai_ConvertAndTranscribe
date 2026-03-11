@@ -180,7 +180,7 @@ async function generateMeetingReport(transcript: string, language: string): Prom
   const transcriptForAnalysis = transcript.substring(0, 25000);
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: mode === 'best_quality' ? 'gpt-4o' : 'gpt-4o-mini',
     temperature: 0.25,
     max_tokens: 4000,
     messages: [
@@ -433,7 +433,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
       await log.info('translating', `Translating to ${job.targetLanguage}...`);
 
       const translator = getTranslationProvider();
-      const translationResult = await translator.translate(mergedSegments, effectiveLanguage, job.targetLanguage!);
+      const translationResult = await translator.translate(mergedSegments, effectiveLanguage, job.targetLanguage!, mode);
       translatedSegments = translationResult.segments;
 
       const dbSegments = await prisma.transcriptSegment.findMany({ where: { jobId }, orderBy: { segmentIndex: 'asc' } });

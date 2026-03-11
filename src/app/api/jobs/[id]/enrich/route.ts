@@ -13,7 +13,7 @@ export async function POST(
   try {
     const job = await prisma.job.findUnique({
       where: { id: params.id },
-      select: { meetingReport: true, detectedLanguage: true, sourceLanguage: true },
+      select: { meetingReport: true, detectedLanguage: true, sourceLanguage: true, processingMode: true },
     });
 
     if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
@@ -29,6 +29,7 @@ export async function POST(
     const lang = job.detectedLanguage || job.sourceLanguage || 'en';
     const langNames: Record<string, string> = { pt: 'Portuguese', en: 'English', es: 'Spanish', fr: 'French' };
     const langName = langNames[lang] || 'English';
+    const model = job.processingMode === 'best_quality' ? 'gpt-4o' : 'gpt-4o-mini';
 
     // Get transcript segments for context
     const segments = await prisma.transcriptSegment.findMany({
@@ -40,7 +41,7 @@ export async function POST(
     const transcript = segments.map(s => s.sourceText).join(' ');
 
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model,
       temperature: 0.3,
       max_tokens: 4000,
       messages: [

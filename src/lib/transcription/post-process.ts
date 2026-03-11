@@ -37,7 +37,7 @@ export async function postProcessTranscript(
 
     try {
       const response = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',  // Best quality mode uses GPT-4o for superior cleanup
         temperature: 0.1,
         messages: [
           {

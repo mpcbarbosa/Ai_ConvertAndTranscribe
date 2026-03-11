@@ -12,7 +12,8 @@ export interface TranslationProvider {
   translate(
     segments: TranscriptSegmentData[],
     sourceLanguage: string,
-    targetLanguage: string
+    targetLanguage: string,
+    mode?: 'best_quality' | 'balanced'
   ): Promise<TranslationResult>;
 }
 
@@ -26,10 +27,12 @@ class OpenAITranslationProvider implements TranslationProvider {
   async translate(
     segments: TranscriptSegmentData[],
     sourceLanguage: string,
-    targetLanguage: string
+    targetLanguage: string,
+    mode: 'best_quality' | 'balanced' = 'balanced'
   ): Promise<TranslationResult> {
     const srcLang = LANGUAGE_MAP[sourceLanguage] || sourceLanguage;
     const tgtLang = LANGUAGE_MAP[targetLanguage] || targetLanguage;
+    const model = mode === 'best_quality' ? 'gpt-4o' : 'gpt-4o-mini';
 
     if (sourceLanguage === targetLanguage) {
       return {
@@ -51,7 +54,7 @@ class OpenAITranslationProvider implements TranslationProvider {
       const numbered = batch.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
 
       const response = await this.client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model,
         temperature: 0.2,
         messages: [
           {
