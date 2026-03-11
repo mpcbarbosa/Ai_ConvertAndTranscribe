@@ -72,7 +72,7 @@ async function downloadFileFromWeb(storageKey: string, destPath: string): Promis
 
   await fs.mkdir(path.dirname(destPath), { recursive: true });
 
-  const DOWNLOAD_CHUNK = 40 * 1024 * 1024; // 40MB per chunk
+  const DOWNLOAD_CHUNK = 10 * 1024 * 1024; // 10MB per chunk
   let offset = 0;
   let totalSize = -1;
   const fileHandle = await fs.open(destPath, 'w');
