@@ -130,7 +130,21 @@
     "timing_stage": "Étape",
     "timing_duration": "Durée",
     "timing_total": "Temps Total de Traitement",
-    "progress": "Progrès"
+    "progress": "Progrès",
+    "enrich_title": "Enrichir le Rapport avec l'IA",
+    "enrich_context": "Domaine / Contexte de la Réunion",
+    "enrich_context_placeholder": "ex: Implémentation SAP S/4HANA, Revue de Stratégie Commerciale, Architecture Technique...",
+    "enrich_context_help": "Spécifier le domaine aide l'IA à agir comme experte dans ce domaine et à utiliser la terminologie appropriée",
+    "enrich_presets": "Options d'Enrichissement Rapide",
+    "enrich_technical": "Analyse Technique Approfondie",
+    "enrich_executive": "Résumé Exécutif",
+    "enrich_actions": "Plan d'Action Détaillé",
+    "enrich_risks": "Analyse des Risques",
+    "enrich_recommendations": "Recommandations d'Expert",
+    "enrich_custom": "Instruction d'Enrichissement Personnalisée",
+    "enrich_custom_placeholder": "Décrivez comment vous souhaitez enrichir le rapport. ex: 'Ajouter une section analysant le paysage concurrentiel discuté'",
+    "enrich_send": "Enrichir",
+    "enrich_processing": "L'IA analyse et enrichit le rapport..."
   },
   "status": {
     "uploaded": "Téléchargé",

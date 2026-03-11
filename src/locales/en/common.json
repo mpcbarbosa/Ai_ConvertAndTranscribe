@@ -130,7 +130,21 @@
     "timing_stage": "Stage",
     "timing_duration": "Duration",
     "timing_total": "Total Processing Time",
-    "progress": "Progress"
+    "progress": "Progress",
+    "enrich_title": "Enrich Report with AI",
+    "enrich_context": "Domain / Meeting Context",
+    "enrich_context_placeholder": "e.g., SAP S/4HANA Implementation, Sales Strategy Review, Technical Architecture...",
+    "enrich_context_help": "Specifying the domain helps the AI act as an expert in this area and use appropriate terminology",
+    "enrich_presets": "Quick Enrichment Options",
+    "enrich_technical": "Technical Deep-Dive",
+    "enrich_executive": "Executive Summary",
+    "enrich_actions": "Detailed Action Plan",
+    "enrich_risks": "Risk Analysis",
+    "enrich_recommendations": "Expert Recommendations",
+    "enrich_custom": "Custom Enrichment Instruction",
+    "enrich_custom_placeholder": "Describe how you want to enrich the report. e.g., 'Add a section analyzing the competitive landscape discussed' or 'Expand the technical requirements with implementation details'",
+    "enrich_send": "Enrich",
+    "enrich_processing": "AI is analyzing and enriching the report..."
   },
   "status": {
     "uploaded": "Uploaded",

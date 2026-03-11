@@ -130,7 +130,21 @@
     "timing_stage": "Etapa",
     "timing_duration": "Duração",
     "timing_total": "Tempo Total de Processamento",
-    "progress": "Progresso"
+    "progress": "Progresso",
+    "enrich_title": "Enriquecer Relatório com IA",
+    "enrich_context": "Domínio / Contexto da Reunião",
+    "enrich_context_placeholder": "ex: Implementação SAP S/4HANA, Revisão de Estratégia Comercial, Arquitetura Técnica...",
+    "enrich_context_help": "Especificar o domínio ajuda a IA a agir como especialista nesta área e usar a terminologia adequada",
+    "enrich_presets": "Opções Rápidas de Enriquecimento",
+    "enrich_technical": "Análise Técnica Detalhada",
+    "enrich_executive": "Resumo Executivo",
+    "enrich_actions": "Plano de Ação Detalhado",
+    "enrich_risks": "Análise de Riscos",
+    "enrich_recommendations": "Recomendações Especializadas",
+    "enrich_custom": "Instrução de Enriquecimento Personalizada",
+    "enrich_custom_placeholder": "Descreva como quer enriquecer o relatório. ex: 'Adicionar uma secção analisando o panorama competitivo discutido' ou 'Expandir os requisitos técnicos com detalhes de implementação'",
+    "enrich_send": "Enriquecer",
+    "enrich_processing": "A IA está a analisar e enriquecer o relatório..."
   },
   "status": {
     "uploaded": "Enviado",

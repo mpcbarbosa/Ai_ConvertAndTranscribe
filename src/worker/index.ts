@@ -171,31 +171,109 @@ async function checkCancelled(jobId: string): Promise<boolean> {
 // --- Meeting Report Generator ---
 
 async function generateMeetingReport(transcript: string, language: string): Promise<string> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const langNames: Record<string, string> = { pt: 'Portuguese', en: 'English', es: 'Spanish', fr: 'French' };
   const langName = langNames[language] || 'English';
 
-  const response = await client.chat.completions.create({
+  // Use more transcript (up to 25k chars) for better analysis
+  const transcriptForAnalysis = transcript.substring(0, 25000);
+
+  const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
-    temperature: 0.3,
+    temperature: 0.25,
+    max_tokens: 4000,
     messages: [
       {
         role: 'system',
-        content: `You are a professional meeting analyst. Generate a structured meeting report in ${langName} from the transcript provided. The report must include:
+        content: `You are a senior business analyst and meeting intelligence specialist. Write in ${langName}.
 
-1. **Meeting Summary** — 2-3 paragraph executive summary
-2. **Key Topics Discussed** — bullet list of main topics
-3. **Decisions Made** — specific decisions reached during the meeting
-4. **Action Items** — tasks assigned with responsible person (if identifiable) and deadlines (if mentioned)
-5. **Open Questions** — unresolved items that need follow-up
-6. **Next Steps** — agreed next steps or follow-up meetings
+Generate an EXTREMELY DETAILED and COMPREHENSIVE meeting report. This report should be professional enough for executive review and detailed enough for operational follow-up.
 
-Use clear professional language. If something is unclear from the transcript, note it as "[unclear from transcript]". Do NOT invent information not present in the transcript.`,
+The report MUST include ALL of the following sections:
+
+# 📋 Meeting Report
+
+## 1. Executive Summary
+- 3-4 paragraph comprehensive summary covering the full scope of the meeting
+- Highlight the most critical outcomes and their business impact
+- Mention key participants and their roles where identifiable from the transcript
+
+## 2. Meeting Context & Objectives
+- What was the apparent purpose/agenda of this meeting
+- What context or background was established at the start
+- What were the stated or implied goals
+
+## 3. Detailed Discussion Analysis
+For EACH major topic discussed:
+- **Topic title**
+- What was discussed in detail
+- Key arguments or perspectives presented by different participants
+- Technical or functional details mentioned
+- Any data, metrics, or specific examples referenced
+- How the discussion evolved and what conclusion was reached (if any)
+
+## 4. Technical & Functional Insights
+- Any technical systems, tools, processes, or architectures discussed
+- Functional requirements or specifications mentioned
+- Integration points, dependencies, or technical constraints identified
+- Performance metrics, KPIs, or benchmarks referenced
+
+## 5. Decisions Made
+For each decision:
+- What was decided
+- Who made or approved the decision (if identifiable)
+- Rationale or context behind the decision
+- Expected impact or implications
+
+## 6. Action Items & Responsibilities
+For each action item (format as a clear table/list):
+- Task description (specific and actionable)
+- Responsible person/team (if identifiable)
+- Deadline or timeline (if mentioned)
+- Priority (inferred from context: High/Medium/Low)
+- Dependencies (if any)
+
+## 7. Risks & Concerns Identified
+- Any risks, blockers, or concerns raised during the meeting
+- Who raised them and what mitigation was discussed
+- Unresolved concerns that need attention
+
+## 8. Open Questions & Pending Items
+- Questions that were raised but not fully answered
+- Items that were deferred or need further investigation
+- Information gaps identified during the discussion
+
+## 9. Key Metrics & Data Points
+- Any numbers, dates, budgets, timelines, or metrics mentioned
+- Comparative data or benchmarks discussed
+- Financial figures or resource estimates
+
+## 10. Next Steps & Follow-up
+- Agreed next steps with owners and timelines
+- Follow-up meetings or checkpoints planned
+- Deliverables expected before next meeting
+
+## 11. Meeting Assessment
+- Overall meeting effectiveness (were objectives met?)
+- Key takeaways (3-5 bullet points)
+- Recommendations for follow-up
+
+---
+
+IMPORTANT RULES:
+- Be thorough and detailed — extract MAXIMUM value from the transcript
+- Use specific quotes or references from the transcript to support key points
+- If participants can be identified by name, reference them
+- If something is unclear, mark it as "[requires clarification]"
+- Do NOT fabricate information not present in the transcript
+- Use professional, clear language with proper formatting
+- Use bullet points, sub-sections, and emphasis for readability
+- If technical topics are discussed, explain them with appropriate depth`,
       },
       {
         role: 'user',
-        content: `Generate a meeting report from this transcript:\n\n${transcript.substring(0, 15000)}`,
+        content: `Generate a comprehensive, detailed meeting report from this transcript:\n\n${transcriptForAnalysis}`,
       },
     ],
   });

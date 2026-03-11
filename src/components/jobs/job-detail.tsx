@@ -306,21 +306,7 @@ export function JobDetail({ locale, dict, jobId }: Props) {
         )}
 
         {activeTab === 'report' && (
-          <div>
-            {job.meetingReport ? (
-              <div className="prose prose-sm max-w-none">
-                <div className="whitespace-pre-wrap leading-relaxed text-foreground" dangerouslySetInnerHTML={{
-                  __html: job.meetingReport
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-                    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-6 mb-3">$1</h2>')
-                    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>')
-                    .replace(/^- (.*$)/gm, '<li class="ml-4">$1</li>')
-                    .replace(/\n/g, '<br />')
-                }} />
-              </div>
-            ) : <p className="text-sm text-muted-foreground text-center py-8">{t('job_detail.no_report')}</p>}
-          </div>
+          <ReportTab job={job} locale={locale} t={t} onReportUpdated={fetchJob} />
         )}
 
         {activeTab === 'segments' && (
@@ -391,6 +377,132 @@ export function JobDetail({ locale, dict, jobId }: Props) {
                 ))}
               </div>
             ) : <p className="text-sm text-muted-foreground text-center py-8">{t('job_detail.no_logs')}</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Report Tab with Enrichment ---
+
+function renderMarkdown(md: string): string {
+  return md
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold mt-4 mb-2 text-foreground">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-6 mb-3 text-foreground border-b border-border/40 pb-1">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-6 mb-3 text-foreground">$1</h1>')
+    .replace(/^- (.*$)/gm, '<li class="ml-4 mb-1">• $1</li>')
+    .replace(/^\d+\. (.*$)/gm, '<li class="ml-4 mb-1">$1</li>')
+    .replace(/\n\n/g, '</p><p class="mt-3">')
+    .replace(/\n/g, '<br />');
+}
+
+const PRESET_INSTRUCTIONS: Record<string, string> = {
+  enrich_technical: 'Enrich the report with deep technical analysis. Act as a senior technical architect and analyze all technical aspects discussed: systems, integrations, architectures, data flows, technical requirements, and constraints. Add technical recommendations and best practices.',
+  enrich_executive: 'Rewrite the executive summary to be more strategic and impactful. Add business impact analysis, ROI considerations, strategic alignment assessment, and key performance indicators. Make it suitable for C-level presentation.',
+  enrich_actions: 'Expand the action items section significantly. For each action item, add detailed task breakdown, success criteria, estimated effort, dependencies, and suggested milestones. Create a prioritized action plan with a timeline.',
+  enrich_risks: 'Add a comprehensive risk analysis. Identify all explicit and implicit risks from the discussion. For each risk, provide: severity assessment, probability, impact analysis, mitigation strategy, and contingency plan.',
+  enrich_recommendations: 'Add a detailed recommendations section. Based on everything discussed, provide expert recommendations organized by priority. Include quick wins, medium-term improvements, and long-term strategic recommendations with estimated impact and effort.',
+};
+
+function ReportTab({ job, locale, t, onReportUpdated }: {
+  job: JobData; locale: Locale; t: (key: string, params?: Record<string, string>) => string; onReportUpdated: () => void;
+}) {
+  const [enriching, setEnriching] = useState(false);
+  const [customInstruction, setCustomInstruction] = useState('');
+  const [domainContext, setDomainContext] = useState('');
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+
+  const handleEnrich = async (instruction: string) => {
+    setEnriching(true);
+    setEnrichError(null);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/enrich`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, context: domainContext }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Enrichment failed');
+      }
+      onReportUpdated();
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setEnriching(false);
+    }
+  };
+
+  const presets = [
+    { key: 'enrich_technical', icon: '🔧' },
+    { key: 'enrich_executive', icon: '📊' },
+    { key: 'enrich_actions', icon: '✅' },
+    { key: 'enrich_risks', icon: '⚠️' },
+    { key: 'enrich_recommendations', icon: '💡' },
+  ];
+
+  if (!job.meetingReport) {
+    return <p className="text-sm text-muted-foreground text-center py-8">{t('job_detail.no_report')}</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="prose prose-sm max-w-none">
+        <div className="leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(job.meetingReport) }} />
+      </div>
+
+      <div className="border-t border-border/60 pt-6">
+        <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-primary" />
+          {t('job_detail.enrich_title')}
+        </h3>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-foreground mb-1.5">{t('job_detail.enrich_context')}</label>
+          <input type="text" value={domainContext} onChange={(e) => setDomainContext(e.target.value)}
+            placeholder={t('job_detail.enrich_context_placeholder')}
+            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            disabled={enriching} />
+          <p className="mt-1 text-xs text-muted-foreground">{t('job_detail.enrich_context_help')}</p>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-foreground mb-2">{t('job_detail.enrich_presets')}</label>
+          <div className="flex flex-wrap gap-2">
+            {presets.map(({ key, icon }) => (
+              <button key={key} onClick={() => handleEnrich(PRESET_INSTRUCTIONS[key])} disabled={enriching}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground hover:bg-primary/5 hover:border-primary/30 transition-colors disabled:opacity-50">
+                <span>{icon}</span>{t(`job_detail.${key}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-foreground mb-1.5">{t('job_detail.enrich_custom')}</label>
+          <div className="flex gap-2">
+            <textarea value={customInstruction} onChange={(e) => setCustomInstruction(e.target.value)}
+              placeholder={t('job_detail.enrich_custom_placeholder')} rows={2}
+              className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
+              disabled={enriching} />
+            <button onClick={() => { if (customInstruction.trim()) handleEnrich(customInstruction); }}
+              disabled={enriching || !customInstruction.trim()}
+              className="self-end rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 shrink-0">
+              {enriching ? <Loader2 className="h-4 w-4 animate-spin" /> : t('job_detail.enrich_send')}
+            </button>
+          </div>
+        </div>
+
+        {enriching && (
+          <div className="flex items-center gap-2 text-sm text-primary">
+            <Loader2 className="h-4 w-4 animate-spin" />{t('job_detail.enrich_processing')}
+          </div>
+        )}
+        {enrichError && (
+          <div className="flex items-center gap-2 text-sm text-red-600">
+            <AlertCircle className="h-4 w-4" />{enrichError}
           </div>
         )}
       </div>
