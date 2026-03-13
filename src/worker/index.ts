@@ -359,13 +359,10 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
       mp3Path = mp3Parts[0];
     }
 
-    await log.info('converting', 'Generating MP3 from original...');
-
-    const originalLocalPath = mp3Path; // Used later for normalization
-
     // Check cancellation
     if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
 
+    // Upload MP3 artifact
     await updateJobProgress(jobId, 'converting', 8, 'Uploading MP3...');
     const mp3StorageKey = `jobs/${jobId}/output.mp3`;
     const mp3Data = await fs.readFile(mp3Path);
@@ -373,13 +370,13 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await prisma.jobArtifact.create({
       data: { jobId, type: 'mp3', storagePath: mp3StorageKey, mimeType: 'audio/mpeg', sizeBytes: mp3Data.length },
     });
-    await cleanupFiles(mp3Path);
-    await log.info('converting', `MP3 generated: ${(mp3Data.length / 1024 / 1024).toFixed(1)} MB`);
+    await log.info('converting', `MP3 ready: ${(mp3Data.length / 1024 / 1024).toFixed(1)} MB`);
 
+    // Normalize MP3 to WAV for transcription (BEFORE cleaning up the MP3)
     await updateJobProgress(jobId, 'converting', 10, 'Normalizing audio...');
     const normalizedPath = path.join(tmpDir, 'normalized.wav');
-    await normalizeForTranscription(originalLocalPath, normalizedPath);
-    await cleanupFiles(originalLocalPath);
+    await normalizeForTranscription(mp3Path, normalizedPath);
+    await cleanupFiles(mp3Path);
 
     const mediaInfo = await getMediaInfo(normalizedPath);
     await prisma.job.update({ where: { id: jobId }, data: { durationSeconds: mediaInfo.durationSeconds } });
