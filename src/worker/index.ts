@@ -297,25 +297,71 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     await log.info('start', `Processing job: ${job.originalFileName}`);
 
-    const originalArtifact = await prisma.jobArtifact.findFirst({
+    // Get all original artifacts (supports multi-file upload)
+    const originalArtifacts = await prisma.jobArtifact.findMany({
       where: { jobId, type: 'original' },
+      orderBy: { createdAt: 'asc' },
     });
-    if (!originalArtifact) throw new Error('Original file artifact not found');
+    if (originalArtifacts.length === 0) throw new Error('Original file artifact not found');
 
-    const originalLocalPath = path.join(tmpDir, 'original_input' + path.extname(job.originalFileName || '.bin'));
-    await log.info('start', 'Downloading file from web service...');
-    await downloadFileFromWeb(originalArtifact.storagePath, originalLocalPath);
-    await log.info('start', 'File downloaded to worker');
+    const isMultiFile = originalArtifacts.length > 1;
+    if (isMultiFile) await log.info('start', `Multi-file job: ${originalArtifacts.length} files to concatenate`);
+
+    // Download all original files
+    const originalPaths: string[] = [];
+    for (let fi = 0; fi < originalArtifacts.length; fi++) {
+      const ext = path.extname(originalArtifacts[fi].storagePath || '.bin');
+      const localPath = path.join(tmpDir, `original_${fi}${ext}`);
+      await log.info('start', `Downloading file ${fi + 1}/${originalArtifacts.length} from web service...`);
+      await downloadFileFromWeb(originalArtifacts[fi].storagePath, localPath);
+      originalPaths.push(localPath);
+    }
+    await log.info('start', `${originalArtifacts.length} file(s) downloaded to worker`);
 
     const mode = job.processingMode as ProcessingMode;
 
     // ===== STAGE: CONVERTING =====
     const convertStart = await startStage(jobId, 'converting');
     await updateJobProgress(jobId, 'converting', 2, 'Extracting and converting audio...');
+
+    // Convert each file to MP3, then concatenate if multi-file
+    const mp3Parts: string[] = [];
+    for (let fi = 0; fi < originalPaths.length; fi++) {
+      const partMp3 = path.join(tmpDir, `part_${fi}.mp3`);
+      await log.info('converting', `Converting file ${fi + 1}/${originalPaths.length} to MP3...`);
+      await convertToMp3(originalPaths[fi], partMp3);
+      mp3Parts.push(partMp3);
+      await cleanupFiles(originalPaths[fi]);
+    }
+
+    let mp3Path: string;
+    if (isMultiFile) {
+      // Concatenate MP3s using FFmpeg concat filter
+      mp3Path = path.join(tmpDir, 'output.mp3');
+      const concatList = path.join(tmpDir, 'concat_list.txt');
+      const listContent = mp3Parts.map(p => `file '${p}'`).join('\n');
+      await fs.writeFile(concatList, listContent);
+
+      await log.info('converting', `Concatenating ${mp3Parts.length} MP3 files...`);
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+      await execFileAsync('ffmpeg', [
+        '-f', 'concat', '-safe', '0', '-i', concatList,
+        '-c', 'copy', '-y', mp3Path,
+      ]);
+
+      // Cleanup parts
+      for (const part of mp3Parts) await cleanupFiles(part);
+      await cleanupFiles(concatList);
+      await log.info('converting', 'MP3 files concatenated');
+    } else {
+      mp3Path = mp3Parts[0];
+    }
+
     await log.info('converting', 'Generating MP3 from original...');
 
-    const mp3Path = path.join(tmpDir, 'output.mp3');
-    await convertToMp3(originalLocalPath, mp3Path);
+    const originalLocalPath = mp3Path; // Used later for normalization
 
     // Check cancellation
     if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');

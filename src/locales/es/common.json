@@ -49,7 +49,13 @@
     "disclaimer": "La transcripción automatizada puede contener errores. Siempre revisa el resultado para verificar la precisión.",
     "cloud_import": "O importar desde almacenamiento en la nube",
     "or_configure": "Configure las opciones de transcripción",
-    "uploading_progress": "Subiendo... {percent}%"
+    "uploading_progress": "Subiendo... {percent}%",
+    "multi_file_hint": "Puede subir múltiples archivos de la misma reunión — se combinarán",
+    "files_selected": "{count} archivo(s) seleccionado(s)",
+    "total_size": "Total: {size}",
+    "reorder_hint": "Use las flechas para definir el orden — los archivos se concatenarán en esta secuencia",
+    "uploading_file": "Subiendo archivo {current} de {total}...",
+    "assembling": "Ensamblando archivos..."
   },
   "jobs": {
     "title": "Mis Trabajos",

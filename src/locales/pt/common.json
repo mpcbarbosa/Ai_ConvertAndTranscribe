@@ -49,7 +49,13 @@
     "disclaimer": "A transcrição automatizada pode conter erros. Sempre revise o resultado para garantir a precisão.",
     "cloud_import": "Ou importar do armazenamento na nuvem",
     "or_configure": "Configure as opções de transcrição",
-    "uploading_progress": "A enviar... {percent}%"
+    "uploading_progress": "A enviar... {percent}%",
+    "multi_file_hint": "Pode enviar múltiplos ficheiros da mesma reunião — serão combinados",
+    "files_selected": "{count} ficheiro(s) selecionado(s)",
+    "total_size": "Total: {size}",
+    "reorder_hint": "Use as setas para definir a ordem correta — os ficheiros serão concatenados nesta sequência",
+    "uploading_file": "A enviar ficheiro {current} de {total}...",
+    "assembling": "A montar ficheiros..."
   },
   "jobs": {
     "title": "Meus Trabalhos",
