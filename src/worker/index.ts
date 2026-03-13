@@ -9,7 +9,7 @@ import {
 } from '../lib/media';
 import { generateSrt, generateVtt, generateTxt, generateJson } from '../lib/media/artifacts';
 import { getTranscriptionProvider } from '../lib/transcription';
-import { postProcessTranscript, mergeChunkSegments } from '../lib/transcription/post-process';
+import { postProcessTranscript, mergeChunkSegments, cleanupSegmentsBatch, lightCleanup } from '../lib/transcription/post-process';
 import { getTranslationProvider } from '../lib/translation';
 import { createJobLogger } from '../lib/utils/logger';
 import type { TranscriptSegmentData, ProcessingMode } from '../types';
@@ -342,7 +342,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     const convertMs = await endStage(jobId, 'converting', convertStart);
     await log.info('converting', `Converting completed in ${(convertMs / 1000).toFixed(1)}s`);
 
-    // ===== STAGE: TRANSCRIBING =====
+    // ===== STAGE: TRANSCRIBING + POST-PROCESSING (PIPELINED) =====
     if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
     const transcribeStart = await startStage(jobId, 'transcribing');
     await updateJobProgress(jobId, 'transcribing', 16, 'Splitting audio into chunks...');
@@ -356,48 +356,78 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('transcribing', `Split into ${chunks.length} chunk(s)`);
 
     const transcriber = getTranscriptionProvider();
-    const TRANSCRIBE_CONCURRENCY = 4;
+    const TRANSCRIBE_CONCURRENCY = 6;
+    const CLEANUP_BATCH_SIZE = 80;
+    const isBestQuality = mode === 'best_quality';
+    const cleanupModel = isBestQuality ? 'gpt-4o' : 'gpt-4o-mini';
     let detectedLanguage: string | undefined;
-    let completedChunks = 0;
+    let completedTranscribe = 0;
+    let completedCleanup = 0;
+    const totalSteps = chunks.length * 2; // transcribe + cleanup per chunk
 
-    // Pre-allocate results array to maintain order
-    const chunkResults: Array<{ segments: TranscriptSegmentData[]; offsetMs: number; overlapMs: number } | null> = new Array(chunks.length).fill(null);
+    // Pre-allocate results: each chunk's cleaned segments
+    const cleanedChunkResults: Array<{
+      segments: TranscriptSegmentData[];
+      offsetMs: number;
+      overlapMs: number;
+    } | null> = new Array(chunks.length).fill(null);
 
-    // Process chunks in parallel batches of TRANSCRIBE_CONCURRENCY
+    // Pipeline: transcribe chunk → immediately cleanup its segments
+    // Run TRANSCRIBE_CONCURRENCY chunk pipelines in parallel
     for (let batchStart = 0; batchStart < chunks.length; batchStart += TRANSCRIBE_CONCURRENCY) {
       if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
 
       const batch = chunks.slice(batchStart, batchStart + TRANSCRIBE_CONCURRENCY);
-      await log.info('transcribing', `Transcribing chunks ${batchStart + 1}-${Math.min(batchStart + TRANSCRIBE_CONCURRENCY, chunks.length)}/${chunks.length} (${TRANSCRIBE_CONCURRENCY} parallel)...`);
+      await log.info('transcribing', `Pipeline batch ${batchStart + 1}-${Math.min(batchStart + TRANSCRIBE_CONCURRENCY, chunks.length)}/${chunks.length} (transcribe+cleanup parallel)...`);
 
-      const batchPromises = batch.map(async (chunk) => {
+      const pipelinePromises = batch.map(async (chunk) => {
+        // Step A: Transcribe this chunk
         const result = await transcriber.transcribe(chunk.path, {
           language: job.sourceLanguage || undefined, mode,
-          prompt: mode === 'best_quality'
+          prompt: isBestQuality
             ? 'Transcribe with proper punctuation, casing, and paragraph breaks. Mark unclear audio as [inaudible].'
             : undefined,
         });
 
         if (!detectedLanguage && result.detectedLanguage) detectedLanguage = result.detectedLanguage;
+        completedTranscribe++;
 
-        chunkResults[chunk.index] = {
-          segments: result.segments,
+        const progress = ((completedTranscribe + completedCleanup) / totalSteps) * 55 + 15;
+        await updateJobProgress(jobId, 'transcribing', progress, `Transcribed ${completedTranscribe}/${chunks.length}, cleaned ${completedCleanup}/${chunks.length}...`);
+        await log.info('transcribing', `Chunk ${chunk.index + 1} transcribed: ${result.segments.length} segments`);
+
+        // Step B: Immediately cleanup this chunk's segments (pipelined)
+        let cleanedSegments: TranscriptSegmentData[];
+        if (isBestQuality && result.segments.length > 0) {
+          // Split into sub-batches for cleanup
+          const subBatches: TranscriptSegmentData[][] = [];
+          for (let i = 0; i < result.segments.length; i += CLEANUP_BATCH_SIZE) {
+            subBatches.push(result.segments.slice(i, i + CLEANUP_BATCH_SIZE));
+          }
+          const cleanedSubs = await Promise.all(
+            subBatches.map(sub => cleanupSegmentsBatch(sub, job.sourceLanguage || undefined, cleanupModel))
+          );
+          cleanedSegments = cleanedSubs.flat();
+        } else {
+          cleanedSegments = result.segments.map(s => ({ ...s, text: lightCleanup(s.text) }));
+        }
+
+        completedCleanup++;
+        const progress2 = ((completedTranscribe + completedCleanup) / totalSteps) * 55 + 15;
+        await updateJobProgress(jobId, 'transcribing', progress2, `Transcribed ${completedTranscribe}/${chunks.length}, cleaned ${completedCleanup}/${chunks.length}...`);
+        await log.info('transcribing', `Chunk ${chunk.index + 1} cleaned: ${cleanedSegments.length} segments`);
+
+        cleanedChunkResults[chunk.index] = {
+          segments: cleanedSegments,
           offsetMs: Math.round(chunk.startSeconds * 1000),
           overlapMs: Math.round(overlapSeconds * 1000),
         };
-
-        completedChunks++;
-        const chunkProgress = STAGE_WEIGHTS.transcribing.start +
-          (completedChunks / chunks.length) * (STAGE_WEIGHTS.transcribing.end - STAGE_WEIGHTS.transcribing.start);
-        await updateJobProgress(jobId, 'transcribing', chunkProgress, `Transcribed ${completedChunks}/${chunks.length} chunks...`);
-        await log.info('transcribing', `Chunk ${chunk.index + 1}: ${result.segments.length} segments`);
       });
 
-      await Promise.all(batchPromises);
+      await Promise.all(pipelinePromises);
     }
 
-    // Filter nulls (shouldn't happen but type safety)
-    const validResults = chunkResults.filter((r): r is NonNullable<typeof r> => r !== null);
+    const validResults = cleanedChunkResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
     const langCodeMap: Record<string, string> = {
       'portuguese': 'pt', 'english': 'en', 'spanish': 'es', 'french': 'fr',
@@ -414,15 +444,11 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('transcribing', `Merged: ${mergedSegments.length} total segments`);
 
     const transcribeMs = await endStage(jobId, 'transcribing', transcribeStart);
-    await log.info('transcribing', `Transcription completed in ${(transcribeMs / 1000).toFixed(1)}s`);
+    await log.info('transcribing', `Transcription+cleanup pipeline completed in ${(transcribeMs / 1000).toFixed(1)}s`);
 
-    // ===== STAGE: POST-PROCESSING =====
-    if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
+    // Save segments to DB
+    await updateJobProgress(jobId, 'post_processing' as never, 72, 'Saving segments...');
     const ppStart = await startStage(jobId, 'post_processing');
-    await updateJobProgress(jobId, 'post_processing', 61, 'Post-processing transcript...');
-    await log.info('post_processing', 'Post-processing transcript...');
-
-    mergedSegments = await postProcessTranscript(mergedSegments, mode, effectiveLanguage);
 
     for (let i = 0; i < mergedSegments.length; i++) {
       await prisma.transcriptSegment.create({
@@ -435,7 +461,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     }
 
     const ppMs = await endStage(jobId, 'post_processing', ppStart);
-    await log.info('post_processing', `Post-processing completed in ${(ppMs / 1000).toFixed(1)}s`);
+    await log.info('post_processing', `Segments saved in ${(ppMs / 1000).toFixed(1)}s`);
 
     // ===== STAGE: TRANSLATION =====
     let translatedSegments: Array<{ sourceText: string; translatedText: string; startMs: number; endMs: number }> | null = null;
