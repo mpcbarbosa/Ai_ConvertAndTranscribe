@@ -10,7 +10,7 @@ export async function GET(
       where: { id: params.id },
       include: {
         artifacts: { orderBy: { createdAt: 'asc' } },
-        segments: { orderBy: { segmentIndex: 'asc' }, take: 500 },
+        segments: { orderBy: { segmentIndex: 'asc' } },
         logs: { orderBy: { createdAt: 'asc' } },
         timings: { orderBy: { startedAt: 'asc' } },
       },
