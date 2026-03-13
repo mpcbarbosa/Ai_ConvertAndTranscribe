@@ -58,6 +58,7 @@ export function UploadForm({ locale, dict }: Props) {
   const [sourceLanguage, setSourceLanguage] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('');
   const [processingMode, setProcessingMode] = useState<'balanced' | 'best_quality'>('balanced');
+  const [domainContext, setDomainContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
@@ -125,6 +126,7 @@ export function UploadForm({ locale, dict }: Props) {
           sourceLanguage: sourceLanguage || null,
           targetLanguage: (targetLanguage && targetLanguage !== sourceLanguage) ? targetLanguage : null,
           processingMode, uiLanguage: locale,
+          domainContext: domainContext || null,
         }),
       });
 
@@ -262,6 +264,15 @@ export function UploadForm({ locale, dict }: Props) {
               <span className="text-xs text-muted-foreground">{t('upload.mode_balanced_desc')}</span>
             </button>
           </div>
+        </div>
+
+        {/* Domain Context (optional) */}
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">{t('upload.domain_context')}</label>
+          <input type="text" value={domainContext} onChange={(e) => setDomainContext(e.target.value)}
+            placeholder={t('upload.domain_context_placeholder')}
+            className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+          <p className="mt-1 text-xs text-muted-foreground">{t('upload.domain_context_help')}</p>
         </div>
 
         {/* Submit */}

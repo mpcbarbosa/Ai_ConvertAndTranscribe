@@ -55,7 +55,10 @@
     "total_size": "Total: {size}",
     "reorder_hint": "Use arrows to set the correct order — files will be concatenated in this sequence",
     "uploading_file": "Uploading file {current} of {total}...",
-    "assembling": "Assembling files..."
+    "assembling": "Assembling files...",
+    "domain_context": "Meeting Domain / Context (optional)",
+    "domain_context_placeholder": "e.g., SAP S/4HANA Implementation, Sales Strategy, Technical Architecture Review...",
+    "domain_context_help": "If specified, a specialized technical report will be generated in addition to the meeting report"
   },
   "jobs": {
     "title": "My Jobs",
@@ -150,7 +153,14 @@
     "enrich_custom": "Custom Enrichment Instruction",
     "enrich_custom_placeholder": "Describe how you want to enrich the report. e.g., 'Add a section analyzing the competitive landscape discussed' or 'Expand the technical requirements with implementation details'",
     "enrich_send": "Enrich",
-    "enrich_processing": "AI is analyzing and enriching the report..."
+    "enrich_processing": "AI is analyzing and enriching the report...",
+    "report_meeting": "Meeting Report",
+    "report_technical": "Technical Analysis",
+    "versions": "{count} versions",
+    "version_history": "Version History",
+    "restore": "Restore",
+    "no_technical_report": "No technical report available",
+    "no_technical_report_hint": "Specify a domain context when uploading to generate a specialized technical analysis"
   },
   "status": {
     "uploaded": "Uploaded",

@@ -76,13 +76,35 @@ Guidelines:
       return NextResponse.json({ error: 'Failed to generate enriched report' }, { status: 500 });
     }
 
-    // Save the enriched report
-    await prisma.job.update({
-      where: { id: params.id },
-      data: { meetingReport: enrichedReport },
+    // Determine which report type to update
+    const reportType = body.reportType || 'meeting';
+    const reportField = reportType === 'technical' ? 'technicalReport' : 'meetingReport';
+
+    // Get current version number
+    const lastVersion = await prisma.reportVersion.findFirst({
+      where: { jobId: params.id, reportType },
+      orderBy: { version: 'desc' },
+    });
+    const newVersion = (lastVersion?.version || 0) + 1;
+
+    // Save new version
+    await prisma.reportVersion.create({
+      data: {
+        jobId: params.id,
+        reportType,
+        content: enrichedReport,
+        label: body.label || instruction.substring(0, 50),
+        version: newVersion,
+      },
     });
 
-    return NextResponse.json({ report: enrichedReport });
+    // Update current report
+    await prisma.job.update({
+      where: { id: params.id },
+      data: { [reportField]: enrichedReport },
+    });
+
+    return NextResponse.json({ report: enrichedReport, version: newVersion });
   } catch (err) {
     console.error('Enrich error:', err);
     return NextResponse.json({ error: 'Failed to enrich report' }, { status: 500 });

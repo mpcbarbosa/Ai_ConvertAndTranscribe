@@ -48,7 +48,7 @@ async function reassembleFile(upload: UploadInfo, storage: ReturnType<typeof get
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sourceLanguage, targetLanguage, processingMode, uiLanguage } = body;
+    const { sourceLanguage, targetLanguage, processingMode, uiLanguage, domainContext } = body;
 
     // Multi-file: body.uploads is an array; single-file: use legacy fields
     const uploads: UploadInfo[] = body.uploads || [{
@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
         targetLanguage: targetLanguage || null,
         uiLanguage: uiLanguage || 'en',
         processingMode: processingMode === 'best_quality' ? 'best_quality' : 'balanced',
+        domainContext: domainContext || null,
         status: 'uploaded',
       },
     });

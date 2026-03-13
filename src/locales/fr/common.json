@@ -55,7 +55,10 @@
     "total_size": "Total : {size}",
     "reorder_hint": "Utilisez les flèches pour définir l'ordre — les fichiers seront concaténés dans cette séquence",
     "uploading_file": "Téléchargement du fichier {current} sur {total}...",
-    "assembling": "Assemblage des fichiers..."
+    "assembling": "Assemblage des fichiers...",
+    "domain_context": "Domaine / Contexte de la Réunion (optionnel)",
+    "domain_context_placeholder": "ex: Implémentation SAP S/4HANA, Stratégie Commerciale, Revue d'Architecture Technique...",
+    "domain_context_help": "Si spécifié, un rapport technique spécialisé sera généré en plus du rapport de réunion"
   },
   "jobs": {
     "title": "Mes Travaux",
@@ -150,7 +153,14 @@
     "enrich_custom": "Instruction d'Enrichissement Personnalisée",
     "enrich_custom_placeholder": "Décrivez comment vous souhaitez enrichir le rapport. ex: 'Ajouter une section analysant le paysage concurrentiel discuté'",
     "enrich_send": "Enrichir",
-    "enrich_processing": "L'IA analyse et enrichit le rapport..."
+    "enrich_processing": "L'IA analyse et enrichit le rapport...",
+    "report_meeting": "Rapport de Réunion",
+    "report_technical": "Analyse Technique",
+    "versions": "{count} versions",
+    "version_history": "Historique des Versions",
+    "restore": "Restaurer",
+    "no_technical_report": "Rapport technique non disponible",
+    "no_technical_report_hint": "Spécifiez un contexte de domaine lors du téléchargement pour générer une analyse technique spécialisée"
   },
   "status": {
     "uploaded": "Téléchargé",

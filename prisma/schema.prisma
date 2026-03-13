@@ -66,6 +66,8 @@ model Job {
   durationSeconds  Float?
   errorMessage     String?
   meetingReport    String?        // AI-generated meeting report
+  technicalReport  String?        // AI-generated technical/functional report
+  domainContext    String?        // Domain context for specialized analysis
   progress         Int            @default(0) // 0-100 overall progress
   currentStage     String?        // current stage description
   cancelRequested  Boolean        @default(false)
@@ -77,9 +79,25 @@ model Job {
   segments         TranscriptSegment[]
   logs             ProcessingLog[]
   timings          StageTiming[]
+  reportVersions   ReportVersion[]
 
   @@index([status])
   @@index([createdAt])
+}
+
+model ReportVersion {
+  id         String   @id @default(cuid())
+  jobId      String
+  reportType String   // 'meeting' or 'technical'
+  content    String
+  label      String   // e.g., 'Original', 'Technical Deep-Dive', 'Executive Summary', custom label
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([jobId, reportType])
 }
 
 model JobArtifact {

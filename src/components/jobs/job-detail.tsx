@@ -14,15 +14,18 @@ interface Artifact { id: string; type: string; mimeType: string; sizeBytes: stri
 interface Segment { id: string; startMs: number; endMs: number; speakerLabel: string | null; sourceText: string; translatedText: string | null; confidence: number | null; segmentIndex: number; }
 interface LogEntry { id: string; stage: string; level: string; message: string; createdAt: string; }
 interface Timing { id: string; stage: string; startedAt: string; completedAt: string | null; durationMs: number | null; }
+interface ReportVersionInfo { id: string; reportType: string; label: string; version: number; createdAt: string; }
 interface JobData {
   id: string; originalFileName: string; originalMimeType: string; originalFileSize: string;
   sourceType: string; sourceLanguage: string | null; detectedLanguage: string | null;
   targetLanguage: string | null; uiLanguage: string; processingMode: string;
   status: string; providerUsed: string | null; durationSeconds: number | null;
-  errorMessage: string | null; meetingReport: string | null;
+  errorMessage: string | null; meetingReport: string | null; technicalReport: string | null;
+  domainContext: string | null;
   progress: number; currentStage: string | null; cancelRequested: boolean;
   createdAt: string; updatedAt: string; completedAt: string | null;
   artifacts: Artifact[]; segments: Segment[]; logs: LogEntry[]; timings: Timing[];
+  reportVersions: ReportVersionInfo[];
 }
 
 interface Props { locale: Locale; dict: Record<string, unknown>; jobId: string; }
@@ -384,7 +387,8 @@ export function JobDetail({ locale, dict, jobId }: Props) {
   );
 }
 
-// --- Report Tab with Enrichment ---
+
+// --- Report Tab with Enrichment + Dual Reports + Versioning ---
 
 function renderMarkdown(md: string): string {
   return md
@@ -409,29 +413,55 @@ const PRESET_INSTRUCTIONS: Record<string, string> = {
 function ReportTab({ job, locale, t, onReportUpdated }: {
   job: JobData; locale: Locale; t: (key: string, params?: Record<string, string>) => string; onReportUpdated: () => void;
 }) {
+  const hasTechnical = !!job.technicalReport;
+  const [activeReport, setActiveReport] = useState<'meeting' | 'technical'>(hasTechnical ? 'technical' : 'meeting');
   const [enriching, setEnriching] = useState(false);
   const [customInstruction, setCustomInstruction] = useState('');
-  const [domainContext, setDomainContext] = useState('');
+  const [domainContext, setDomainContext] = useState(job.domainContext || '');
   const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [showVersions, setShowVersions] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState<string | null>(null);
 
-  const handleEnrich = async (instruction: string) => {
+  const currentReport = activeReport === 'technical' ? job.technicalReport : job.meetingReport;
+  const versions = (job.reportVersions || []).filter(v => v.reportType === activeReport);
+
+  const handleEnrich = async (instruction: string, label?: string) => {
     setEnriching(true);
     setEnrichError(null);
     try {
       const res = await fetch(`/api/jobs/${job.id}/enrich`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction, context: domainContext }),
+        body: JSON.stringify({
+          instruction,
+          context: domainContext,
+          reportType: activeReport,
+          label: label || instruction.substring(0, 50),
+        }),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Enrichment failed');
-      }
+      if (!res.ok) throw new Error((await res.json()).error || 'Enrichment failed');
       onReportUpdated();
     } catch (err) {
       setEnrichError(err instanceof Error ? err.message : 'Failed');
     } finally {
       setEnriching(false);
+    }
+  };
+
+  const handleRestoreVersion = async (versionId: string) => {
+    setRestoringVersion(versionId);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/report-versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ versionId, reportType: activeReport }),
+      });
+      if (!res.ok) throw new Error('Failed to restore');
+      onReportUpdated();
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : 'Failed to restore version');
+    } finally {
+      setRestoringVersion(null);
     }
   };
 
@@ -443,16 +473,71 @@ function ReportTab({ job, locale, t, onReportUpdated }: {
     { key: 'enrich_recommendations', icon: '💡' },
   ];
 
-  if (!job.meetingReport) {
+  if (!job.meetingReport && !job.technicalReport) {
     return <p className="text-sm text-muted-foreground text-center py-8">{t('job_detail.no_report')}</p>;
   }
 
   return (
     <div className="space-y-6">
-      <div className="prose prose-sm max-w-none">
-        <div className="leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(job.meetingReport) }} />
+      {/* Report Type Tabs */}
+      <div className="flex items-center gap-1 border-b border-border/60">
+        <button onClick={() => setActiveReport('meeting')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeReport === 'meeting' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+          {t('job_detail.report_meeting')}
+        </button>
+        {hasTechnical && (
+          <button onClick={() => setActiveReport('technical')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeReport === 'technical' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            {t('job_detail.report_technical')}
+          </button>
+        )}
+
+        {/* Version History Toggle */}
+        {versions.length > 1 && (
+          <button onClick={() => setShowVersions(!showVersions)}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            {t('job_detail.versions', { count: String(versions.length) })}
+          </button>
+        )}
       </div>
 
+      {/* Version History Panel */}
+      {showVersions && versions.length > 1 && (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-foreground mb-2">{t('job_detail.version_history')}</p>
+          {versions.map((v) => (
+            <div key={v.id} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-muted-foreground">v{v.version}</span>
+                <span className="text-foreground">{v.label}</span>
+                <span className="text-muted-foreground">{new Date(v.createdAt).toLocaleString()}</span>
+              </div>
+              <button onClick={() => handleRestoreVersion(v.id)}
+                disabled={restoringVersion === v.id}
+                className="text-primary hover:underline disabled:opacity-50">
+                {restoringVersion === v.id ? '...' : t('job_detail.restore')}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Report Content */}
+      {currentReport ? (
+        <div className="prose prose-sm max-w-none">
+          <div className="leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(currentReport) }} />
+        </div>
+      ) : (
+        <div className="text-center py-8">
+          <p className="text-sm text-muted-foreground">{t('job_detail.no_technical_report')}</p>
+          {!job.domainContext && (
+            <p className="text-xs text-muted-foreground mt-2">{t('job_detail.no_technical_report_hint')}</p>
+          )}
+        </div>
+      )}
+
+      {/* Enrichment Section */}
       <div className="border-t border-border/60 pt-6">
         <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
@@ -472,7 +557,7 @@ function ReportTab({ job, locale, t, onReportUpdated }: {
           <label className="block text-sm font-medium text-foreground mb-2">{t('job_detail.enrich_presets')}</label>
           <div className="flex flex-wrap gap-2">
             {presets.map(({ key, icon }) => (
-              <button key={key} onClick={() => handleEnrich(PRESET_INSTRUCTIONS[key])} disabled={enriching}
+              <button key={key} onClick={() => handleEnrich(PRESET_INSTRUCTIONS[key], t(`job_detail.${key}`))} disabled={enriching}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-sm font-medium text-foreground hover:bg-primary/5 hover:border-primary/30 transition-colors disabled:opacity-50">
                 <span>{icon}</span>{t(`job_detail.${key}`)}
               </button>

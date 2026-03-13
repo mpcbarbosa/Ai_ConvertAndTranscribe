@@ -281,6 +281,124 @@ IMPORTANT RULES:
   return response.choices[0]?.message?.content || 'Report generation failed.';
 }
 
+async function generateTechnicalReport(transcript: string, language: string, mode: ProcessingMode, domainContext: string): Promise<string> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const langNames: Record<string, string> = { pt: 'Portuguese', en: 'English', es: 'Spanish', fr: 'French' };
+  const langName = langNames[language] || 'English';
+  const transcriptForAnalysis = transcript.substring(0, 30000);
+
+  const response = await openai.chat.completions.create({
+    model: mode === 'best_quality' ? 'gpt-4o' : 'gpt-4o-mini',
+    temperature: 0.2,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a senior technical consultant and domain expert in ${domainContext}. Write in ${langName}.
+
+Generate a COMPREHENSIVE TECHNICAL AND FUNCTIONAL ANALYSIS DOCUMENT based on the meeting transcript. This is NOT a meeting summary — it is a professional deliverable document that a consultant would produce after attending this meeting.
+
+Act as the world's leading expert in ${domainContext}. Use industry-specific terminology, frameworks, methodologies, and best practices.
+
+The document MUST include ALL of these sections:
+
+# Technical & Functional Analysis Document
+
+## 1. Executive Overview
+- Project context and objectives identified
+- Stakeholders and their roles
+- Scope boundaries discussed
+
+## 2. Requirements Matrix
+Create a detailed table/list of all requirements discussed:
+- Requirement description
+- Functional area
+- Priority (Critical/High/Medium/Low) — infer from discussion emphasis
+- Coverage level (Standard/Partial/Gap/Custom)
+- Notes and observations
+
+## 3. Functional Analysis
+For each major functional area discussed:
+- Current state (as-is) — what was described about current processes
+- Desired state (to-be) — what was requested or envisioned
+- Gap analysis — what needs to change
+- Specific features, configurations, or customizations discussed
+- Data and integration requirements
+
+## 4. Technical Gaps & Challenges
+For each identified gap:
+- Description of the gap
+- Business impact
+- Recommended solution approach
+- Estimated complexity (Low/Medium/High)
+- Dependencies
+
+## 5. Solution Architecture
+Based on the discussion:
+- Proposed solution components
+- Integration points
+- Third-party tools or extensions needed
+- Technical architecture considerations
+- Data flow and process flow
+
+## 6. Implementation Roadmap
+- Recommended project phases
+- Estimated effort per phase
+- Key milestones
+- Critical path items
+- Risk factors
+
+## 7. Business Process Mapping
+For each business process discussed:
+- Process name and description
+- Key steps identified
+- Automation opportunities
+- Roles involved
+- KPIs or metrics mentioned
+
+## 8. Data & Integration Requirements
+- Data migration needs
+- System integrations discussed
+- API or interface requirements
+- Data quality considerations
+
+## 9. Risk Assessment
+- Technical risks
+- Functional risks
+- Organizational risks
+- Mitigation strategies
+
+## 10. Recommendations & Next Steps
+- Priority recommendations (quick wins, medium-term, long-term)
+- Suggested project approach
+- Required resources
+- Success criteria
+
+## 11. Open Items & Clarifications Needed
+- Questions requiring follow-up
+- Decisions pending
+- Information gaps
+
+IMPORTANT RULES:
+- This is a TECHNICAL DOCUMENT, not a meeting summary
+- Use your expert knowledge of ${domainContext} to ADD VALUE beyond what was explicitly said
+- Cross-reference requirements against standard capabilities where applicable
+- Be specific with technical terminology and product features
+- Create tables and structured data where appropriate
+- If you identify requirements that weren't explicitly stated but are typically needed, flag them as "implied requirements"
+- Write in ${langName}`,
+      },
+      {
+        role: 'user',
+        content: `Generate a comprehensive technical and functional analysis document from this meeting about ${domainContext}:\n\n${transcriptForAnalysis}`,
+      },
+    ],
+  });
+
+  return response.choices[0]?.message?.content || 'Technical report generation failed.';
+}
+
 // --- Main Job Processor ---
 
 async function processJob(bullJob: BullJob<TranscriptionJobData>) {
@@ -541,19 +659,50 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('generating_report', 'Generating meeting report...');
 
     const fullTranscript = mergedSegments.map(s => s.text).join(' ');
+
+    // Generate meeting report (always)
     const meetingReport = await generateMeetingReport(fullTranscript, effectiveLanguage, mode);
 
-    await prisma.job.update({ where: { id: jobId }, data: { meetingReport } });
+    // Save version 1 of meeting report
+    await prisma.reportVersion.create({
+      data: { jobId, reportType: 'meeting', content: meetingReport, label: 'Original', version: 1 },
+    });
 
-    // Save report as artifact
+    // Generate technical report if domain context was specified
+    let technicalReport: string | null = null;
+    if (job.domainContext) {
+      await updateJobProgress(jobId, 'generating_report' as never, 86, 'Generating technical analysis...');
+      await log.info('generating_report', `Generating technical report for domain: ${job.domainContext}...`);
+      technicalReport = await generateTechnicalReport(fullTranscript, effectiveLanguage, mode, job.domainContext);
+
+      // Save version 1 of technical report
+      await prisma.reportVersion.create({
+        data: { jobId, reportType: 'technical', content: technicalReport, label: 'Original', version: 1 },
+      });
+    }
+
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { meetingReport, technicalReport },
+    });
+
+    // Save reports as artifacts
     const reportKey = `jobs/${jobId}/meeting_report.md`;
     await uploadArtifactToWeb(reportKey, Buffer.from(meetingReport, 'utf-8'));
     await prisma.jobArtifact.create({
       data: { jobId, type: 'meeting_report', storagePath: reportKey, mimeType: 'text/markdown', sizeBytes: Buffer.byteLength(meetingReport) },
     });
 
+    if (technicalReport) {
+      const techReportKey = `jobs/${jobId}/technical_report.md`;
+      await uploadArtifactToWeb(techReportKey, Buffer.from(technicalReport, 'utf-8'));
+      await prisma.jobArtifact.create({
+        data: { jobId, type: 'meeting_report', storagePath: techReportKey, mimeType: 'text/markdown', sizeBytes: Buffer.byteLength(technicalReport) },
+      });
+    }
+
     const reportMs = await endStage(jobId, 'generating_report', reportStart);
-    await log.info('generating_report', `Meeting report generated in ${(reportMs / 1000).toFixed(1)}s`);
+    await log.info('generating_report', `Reports generated in ${(reportMs / 1000).toFixed(1)}s`);
 
     // ===== STAGE: GENERATING OUTPUTS =====
     if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');

@@ -55,7 +55,10 @@
     "total_size": "Total: {size}",
     "reorder_hint": "Use as setas para definir a ordem correta — os ficheiros serão concatenados nesta sequência",
     "uploading_file": "A enviar ficheiro {current} de {total}...",
-    "assembling": "A montar ficheiros..."
+    "assembling": "A montar ficheiros...",
+    "domain_context": "Domínio / Contexto da Reunião (opcional)",
+    "domain_context_placeholder": "ex: Implementação SAP S/4HANA, Estratégia Comercial, Revisão de Arquitectura Técnica...",
+    "domain_context_help": "Se especificado, será gerado um relatório técnico especializado além do relatório da reunião"
   },
   "jobs": {
     "title": "Meus Trabalhos",
@@ -150,7 +153,14 @@
     "enrich_custom": "Instrução de Enriquecimento Personalizada",
     "enrich_custom_placeholder": "Descreva como quer enriquecer o relatório. ex: 'Adicionar uma secção analisando o panorama competitivo discutido' ou 'Expandir os requisitos técnicos com detalhes de implementação'",
     "enrich_send": "Enriquecer",
-    "enrich_processing": "A IA está a analisar e enriquecer o relatório..."
+    "enrich_processing": "A IA está a analisar e enriquecer o relatório...",
+    "report_meeting": "Relatório da Reunião",
+    "report_technical": "Análise Técnica",
+    "versions": "{count} versões",
+    "version_history": "Histórico de Versões",
+    "restore": "Restaurar",
+    "no_technical_report": "Relatório técnico não disponível",
+    "no_technical_report_hint": "Especifique um contexto de domínio no upload para gerar uma análise técnica especializada"
   },
   "status": {
     "uploaded": "Enviado",

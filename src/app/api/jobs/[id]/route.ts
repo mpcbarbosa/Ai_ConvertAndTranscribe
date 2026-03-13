@@ -13,6 +13,7 @@ export async function GET(
         segments: { orderBy: { segmentIndex: 'asc' } },
         logs: { orderBy: { createdAt: 'asc' } },
         timings: { orderBy: { startedAt: 'asc' } },
+        reportVersions: { orderBy: { version: 'desc' }, select: { id: true, reportType: true, label: true, version: true, createdAt: true } },
       },
     });
 
