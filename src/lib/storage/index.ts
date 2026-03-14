@@ -102,7 +102,7 @@ export function getStorage(): StorageProvider {
       console.log('[storage] Using local disk:', basePath);
     }
   }
-  return storage;
+  return storage!;
 }
 
 export function isR2Storage(): boolean {
