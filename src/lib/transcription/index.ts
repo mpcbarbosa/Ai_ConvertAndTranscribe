@@ -1,40 +1,81 @@
 import OpenAI from 'openai';
+import Groq from 'groq-sdk';
 import fs from 'fs';
 import type { TranscriptSegmentData, TranscriptionResult, ProcessingMode } from '../../types';
 
 export interface TranscriptionProvider {
-  transcribe(
-    audioPath: string,
-    options: TranscriptionOptions
-  ): Promise<TranscriptionResult>;
+  transcribe(audioPath: string, options: TranscriptionOptions): Promise<TranscriptionResult>;
   readonly name: string;
 }
 
 export interface TranscriptionOptions {
-  language?: string; // ISO 639-1 code, or undefined for auto-detect
+  language?: string;
   mode: ProcessingMode;
-  prompt?: string; // Context hint for better accuracy
+  prompt?: string;
 }
 
 /**
- * OpenAI Whisper transcription provider.
- * - Best quality: uses verbose_json format with detailed timestamps
- * - Balanced: uses standard json format
+ * Groq Whisper — 10x faster than OpenAI Whisper, same model quality.
+ * Uses whisper-large-v3-turbo for best speed/quality balance.
+ */
+class GroqWhisperProvider implements TranscriptionProvider {
+  private client: Groq;
+  readonly name = 'groq-whisper';
+
+  constructor() {
+    this.client = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+
+  async transcribe(audioPath: string, options: TranscriptionOptions): Promise<TranscriptionResult> {
+    const file = fs.createReadStream(audioPath);
+
+    const response = await this.client.audio.transcriptions.create({
+      file,
+      model: 'whisper-large-v3-turbo',
+      response_format: 'verbose_json',
+      timestamp_granularities: ['segment'],
+      language: options.language || undefined,
+      prompt: options.prompt || 'Transcribe accurately with proper punctuation and capitalization.',
+    });
+
+    const segments: TranscriptSegmentData[] = [];
+    const rawSegments = (response as unknown as { segments?: Array<{
+      start: number; end: number; text: string;
+      avg_logprob?: number; no_speech_prob?: number;
+    }> }).segments || [];
+
+    for (const seg of rawSegments) {
+      if (seg.no_speech_prob && seg.no_speech_prob > 0.8) continue;
+      segments.push({
+        startMs: Math.round(seg.start * 1000),
+        endMs: Math.round(seg.end * 1000),
+        text: seg.text.trim(),
+        confidence: seg.avg_logprob ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) : undefined,
+      });
+    }
+
+    const detectedLanguage = (response as unknown as { language?: string }).language;
+    return {
+      segments,
+      detectedLanguage: detectedLanguage || undefined,
+      fullText: segments.map(s => s.text).join(' '),
+      provider: this.name,
+    };
+  }
+}
+
+/**
+ * OpenAI Whisper — fallback if Groq is not configured.
  */
 class OpenAIWhisperProvider implements TranscriptionProvider {
   private client: OpenAI;
   readonly name = 'openai-whisper';
 
   constructor() {
-    this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
 
-  async transcribe(
-    audioPath: string,
-    options: TranscriptionOptions
-  ): Promise<TranscriptionResult> {
+  async transcribe(audioPath: string, options: TranscriptionOptions): Promise<TranscriptionResult> {
     const file = fs.createReadStream(audioPath);
     const isBestQuality = options.mode === 'best_quality';
 
@@ -52,45 +93,43 @@ class OpenAIWhisperProvider implements TranscriptionProvider {
 
     const segments: TranscriptSegmentData[] = [];
     const rawSegments = (response as unknown as { segments?: Array<{
-      start: number;
-      end: number;
-      text: string;
-      avg_logprob?: number;
-      no_speech_prob?: number;
+      start: number; end: number; text: string;
+      avg_logprob?: number; no_speech_prob?: number;
     }> }).segments || [];
 
     for (const seg of rawSegments) {
-      // Skip high no-speech probability segments
       if (seg.no_speech_prob && seg.no_speech_prob > 0.8) continue;
-
       segments.push({
         startMs: Math.round(seg.start * 1000),
         endMs: Math.round(seg.end * 1000),
         text: seg.text.trim(),
-        confidence: seg.avg_logprob
-          ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) // Convert logprob to 0-1 range
-          : undefined,
+        confidence: seg.avg_logprob ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) : undefined,
       });
     }
 
     const detectedLanguage = (response as unknown as { language?: string }).language;
-    const fullText = segments.map(s => s.text).join(' ');
-
     return {
       segments,
       detectedLanguage: detectedLanguage || undefined,
-      fullText,
+      fullText: segments.map(s => s.text).join(' '),
       provider: this.name,
     };
   }
 }
 
-// Singleton provider
+// Singleton
 let provider: TranscriptionProvider | null = null;
 
 export function getTranscriptionProvider(): TranscriptionProvider {
   if (!provider) {
-    provider = new OpenAIWhisperProvider();
+    // Use Groq if API key is set, otherwise OpenAI
+    if (process.env.GROQ_API_KEY) {
+      provider = new GroqWhisperProvider();
+      console.log('[transcription] Using Groq Whisper (fast mode)');
+    } else {
+      provider = new OpenAIWhisperProvider();
+      console.log('[transcription] Using OpenAI Whisper (fallback)');
+    }
   }
   return provider;
 }

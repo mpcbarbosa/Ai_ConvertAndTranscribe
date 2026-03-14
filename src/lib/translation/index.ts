@@ -32,7 +32,7 @@ class OpenAITranslationProvider implements TranslationProvider {
   ): Promise<TranslationResult> {
     const srcLang = LANGUAGE_MAP[sourceLanguage] || sourceLanguage;
     const tgtLang = LANGUAGE_MAP[targetLanguage] || targetLanguage;
-    const model = mode === 'best_quality' ? 'gpt-4o' : 'gpt-4o-mini';
+    const model = 'gpt-4o-mini'; // Fast translation — quality diff minimal
 
     if (sourceLanguage === targetLanguage) {
       return {
@@ -47,7 +47,7 @@ class OpenAITranslationProvider implements TranslationProvider {
     }
 
     const batchSize = 40;
-    const TRANSLATE_CONCURRENCY = 4;
+    const TRANSLATE_CONCURRENCY = 8;
 
     // Create all batches
     const batches: Array<{ startIdx: number; segments: TranscriptSegmentData[] }> = [];

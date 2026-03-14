@@ -10,7 +10,7 @@ const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export async function cleanupSegmentsBatch(
   segments: TranscriptSegmentData[],
   language?: string,
-  model: string = 'gpt-4o'
+  model: string = 'gpt-4o-mini'
 ): Promise<TranscriptSegmentData[]> {
   if (segments.length === 0) return segments;
 
@@ -72,7 +72,7 @@ export async function postProcessTranscript(
 
   // Split into batches and process in parallel
   const batchSize = 80; // Larger batches = fewer API calls
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 8;
   const model = 'gpt-4o';
 
   const batches: TranscriptSegmentData[][] = [];

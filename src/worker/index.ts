@@ -517,10 +517,10 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('transcribing', `Split into ${chunks.length} chunk(s)`);
 
     const transcriber = getTranscriptionProvider();
-    const TRANSCRIBE_CONCURRENCY = 6;
+    const TRANSCRIBE_CONCURRENCY = 8;
     const CLEANUP_BATCH_SIZE = 80;
     const isBestQuality = mode === 'best_quality';
-    const cleanupModel = isBestQuality ? 'gpt-4o' : 'gpt-4o-mini';
+    const cleanupModel = 'gpt-4o-mini'; // Fast cleanup — quality diff minimal
     let detectedLanguage: string | undefined;
     let completedTranscribe = 0;
     let completedCleanup = 0;
