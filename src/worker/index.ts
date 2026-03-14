@@ -28,51 +28,61 @@ const WEB_URL = getWebUrl();
 
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
-async function downloadChunk(url: string, start: number, end: number, maxRetries = 5): Promise<{ data: Buffer; totalSize: number; status: number }> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const response = await fetch(url, {
-        headers: { 'Range': `bytes=${start}-${end}` },
-      });
-
-      if (response.status === 502 || response.status === 503) {
-        console.log(`[download] Chunk ${start}-${end}: got ${response.status}, retry ${attempt + 1}/${maxRetries}`);
-        await sleep((attempt + 1) * 5000);
-        continue;
-      }
-
-      if (!response.ok && response.status !== 206) {
-        const body = await response.text().catch(() => '');
-        throw new Error(`Download failed: ${response.status} - ${body.substring(0, 200)}`);
-      }
-
-      // Read body — this is where "terminated" errors happen
-      const data = Buffer.from(await response.arrayBuffer());
-
-      let totalSize = -1;
-      const contentRange = response.headers.get('content-range');
-      if (contentRange) {
-        const match = contentRange.match(/\/(\d+)/);
-        if (match) totalSize = parseInt(match[1]);
-      }
-
-      return { data, totalSize, status: response.status };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.log(`[download] Chunk ${start}-${end}: error "${msg}", retry ${attempt + 1}/${maxRetries}`);
-      if (attempt === maxRetries - 1) throw err;
-      await sleep((attempt + 1) * 3000);
-    }
-  }
-  throw new Error('Max retries exceeded for chunk download');
-}
-
-async function downloadFileFromWeb(storageKey: string, destPath: string): Promise<void> {
-  const url = `${WEB_URL}/api/internal/files/download?key=${encodeURIComponent(storageKey)}`;
-
+/**
+ * Download file directly from R2 storage to local disk.
+ * Streams the file — no full-file memory allocation.
+ */
+async function downloadFromR2(storageKey: string, destPath: string): Promise<void> {
   await fs.mkdir(path.dirname(destPath), { recursive: true });
 
-  const DOWNLOAD_CHUNK = 10 * 1024 * 1024; // 10MB per chunk
+  const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+  const client = new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    },
+  });
+
+  const bucket = process.env.R2_BUCKET_NAME || 'aiconverttranscribe';
+  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: storageKey }));
+
+  const stream = response.Body as import('stream').Readable;
+  const fileHandle = await fs.open(destPath, 'w');
+  let offset = 0;
+
+  try {
+    for await (const chunk of stream) {
+      const buf = Buffer.from(chunk);
+      await fileHandle.write(buf, 0, buf.length, offset);
+      offset += buf.length;
+    }
+  } finally {
+    await fileHandle.close();
+  }
+
+  console.log(`[download] R2 direct: ${(offset / 1024 / 1024).toFixed(1)} MB downloaded`);
+}
+
+/**
+ * Download file — uses R2 direct if configured, otherwise HTTP from web service.
+ */
+async function downloadFile(storageKey: string, destPath: string): Promise<void> {
+  const useR2 = !!(process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_ACCOUNT_ID);
+
+  if (useR2) {
+    console.log(`[download] Direct R2 download: ${storageKey}`);
+    await downloadFromR2(storageKey, destPath);
+    return;
+  }
+
+  // Fallback: HTTP chunked download from web service
+  console.log(`[download] HTTP download from web service: ${storageKey}`);
+  const url = `${WEB_URL}/api/internal/files/download?key=${encodeURIComponent(storageKey)}`;
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+  const DOWNLOAD_CHUNK = 10 * 1024 * 1024;
   let offset = 0;
   let totalSize = -1;
   const fileHandle = await fs.open(destPath, 'w');
@@ -80,27 +90,62 @@ async function downloadFileFromWeb(storageKey: string, destPath: string): Promis
   try {
     while (true) {
       const end = offset + DOWNLOAD_CHUNK - 1;
-      const { data, totalSize: chunkTotal, status } = await downloadChunk(url, offset, end);
 
-      if (chunkTotal > 0) totalSize = chunkTotal;
+      let data: Buffer, chunkTotal: number, status: number;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const response = await fetch(url, { headers: { 'Range': `bytes=${offset}-${end}` } });
+          if (response.status === 502 || response.status === 503) {
+            await sleep((attempt + 1) * 5000);
+            continue;
+          }
+          if (!response.ok && response.status !== 206) {
+            throw new Error(`Download failed: ${response.status}`);
+          }
+          data = Buffer.from(await response.arrayBuffer());
+          const cr = response.headers.get('content-range');
+          chunkTotal = cr ? parseInt(cr.match(/\/(\d+)/)?.[1] || '-1') : -1;
+          status = response.status;
+          break;
+        } catch (err) {
+          if (attempt === 4) throw err;
+          await sleep((attempt + 1) * 3000);
+        }
+      }
 
-      await fileHandle.write(data, 0, data.length, offset);
-      offset += data.length;
+      if (chunkTotal! > 0) totalSize = chunkTotal!;
+      await fileHandle.write(data!, 0, data!.length, offset);
+      offset += data!.length;
 
-      console.log(`[download] ${(offset / 1024 / 1024).toFixed(1)} MB${totalSize > 0 ? ` / ${(totalSize / 1024 / 1024).toFixed(1)} MB` : ''}`);
-
-      if (status !== 206 || data.length < DOWNLOAD_CHUNK) break;
+      if (status! !== 206 || data!.length < DOWNLOAD_CHUNK) break;
       if (totalSize > 0 && offset >= totalSize) break;
     }
-    console.log(`[download] Complete: ${(offset / 1024 / 1024).toFixed(1)} MB`);
   } finally {
     await fileHandle.close();
   }
 }
 
-async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<void> {
-  const url = `${WEB_URL}/api/internal/files`;
+async function uploadArtifact(storageKey: string, data: Buffer): Promise<void> {
+  const useR2 = !!(process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_ACCOUNT_ID);
 
+  if (useR2) {
+    // Direct R2 upload
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID!, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY! },
+    });
+    await client.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME || 'aiconverttranscribe',
+      Key: storageKey,
+      Body: data,
+    }));
+    return;
+  }
+
+  // Fallback: HTTP upload to web service
+  const url = `${WEB_URL}/api/internal/files`;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const response = await fetch(url, {
@@ -109,7 +154,6 @@ async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<vo
         body: new Uint8Array(data),
       });
       if (response.status === 502 || response.status === 503) {
-        console.log(`[upload] Got ${response.status}, retry ${attempt + 1}/3`);
         await sleep((attempt + 1) * 3000);
         continue;
       }
@@ -117,7 +161,6 @@ async function uploadArtifactToWeb(storageKey: string, data: Buffer): Promise<vo
       return;
     } catch (err) {
       if (attempt === 2) throw err;
-      console.log(`[upload] Error, retry ${attempt + 1}/3`);
       await sleep((attempt + 1) * 3000);
     }
   }
@@ -431,7 +474,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
       const ext = path.extname(originalArtifacts[fi].storagePath || '.bin');
       const localPath = path.join(tmpDir, `original_${fi}${ext}`);
       await log.info('start', `Downloading file ${fi + 1}/${originalArtifacts.length} from web service...`);
-      await downloadFileFromWeb(originalArtifacts[fi].storagePath, localPath);
+      await downloadFile(originalArtifacts[fi].storagePath, localPath);
       originalPaths.push(localPath);
     }
     await log.info('start', `${originalArtifacts.length} file(s) downloaded to worker`);
@@ -484,7 +527,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await updateJobProgress(jobId, 'converting', 8, 'Uploading MP3...');
     const mp3StorageKey = `jobs/${jobId}/output.mp3`;
     const mp3Data = await fs.readFile(mp3Path);
-    await uploadArtifactToWeb(mp3StorageKey, mp3Data);
+    await uploadArtifact(mp3StorageKey, mp3Data);
     await prisma.jobArtifact.create({
       data: { jobId, type: 'mp3', storagePath: mp3StorageKey, mimeType: 'audio/mpeg', sizeBytes: mp3Data.length },
     });
@@ -688,14 +731,14 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     // Save reports as artifacts
     const reportKey = `jobs/${jobId}/meeting_report.md`;
-    await uploadArtifactToWeb(reportKey, Buffer.from(meetingReport, 'utf-8'));
+    await uploadArtifact(reportKey, Buffer.from(meetingReport, 'utf-8'));
     await prisma.jobArtifact.create({
       data: { jobId, type: 'meeting_report', storagePath: reportKey, mimeType: 'text/markdown', sizeBytes: Buffer.byteLength(meetingReport) },
     });
 
     if (technicalReport) {
       const techReportKey = `jobs/${jobId}/technical_report.md`;
-      await uploadArtifactToWeb(techReportKey, Buffer.from(technicalReport, 'utf-8'));
+      await uploadArtifact(techReportKey, Buffer.from(technicalReport, 'utf-8'));
       await prisma.jobArtifact.create({
         data: { jobId, type: 'meeting_report', storagePath: techReportKey, mimeType: 'text/markdown', sizeBytes: Buffer.byteLength(technicalReport) },
       });
@@ -725,36 +768,36 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // Transcript TXT
     const transcriptTxt = generateTxt(segmentsForArtifact, false);
     const txtKey = `jobs/${jobId}/transcript.txt`;
-    await uploadArtifactToWeb(txtKey, Buffer.from(transcriptTxt, 'utf-8'));
+    await uploadArtifact(txtKey, Buffer.from(transcriptTxt, 'utf-8'));
     await prisma.jobArtifact.create({ data: { jobId, type: 'transcript_txt', storagePath: txtKey, mimeType: 'text/plain', sizeBytes: Buffer.byteLength(transcriptTxt) } });
 
     // Transcript JSON
     const transcriptJson = generateJson(segmentsForArtifact, metadata);
     const jsonKey = `jobs/${jobId}/transcript.json`;
-    await uploadArtifactToWeb(jsonKey, Buffer.from(transcriptJson, 'utf-8'));
+    await uploadArtifact(jsonKey, Buffer.from(transcriptJson, 'utf-8'));
     await prisma.jobArtifact.create({ data: { jobId, type: 'transcript_json', storagePath: jsonKey, mimeType: 'application/json', sizeBytes: Buffer.byteLength(transcriptJson) } });
 
     // SRT + VTT
     const srtContent = generateSrt(segmentsForArtifact, false);
     const srtKey = `jobs/${jobId}/subtitles.srt`;
-    await uploadArtifactToWeb(srtKey, Buffer.from(srtContent, 'utf-8'));
+    await uploadArtifact(srtKey, Buffer.from(srtContent, 'utf-8'));
     await prisma.jobArtifact.create({ data: { jobId, type: 'srt', storagePath: srtKey, mimeType: 'application/x-subrip', sizeBytes: Buffer.byteLength(srtContent) } });
 
     const vttContent = generateVtt(segmentsForArtifact, false);
     const vttKey = `jobs/${jobId}/subtitles.vtt`;
-    await uploadArtifactToWeb(vttKey, Buffer.from(vttContent, 'utf-8'));
+    await uploadArtifact(vttKey, Buffer.from(vttContent, 'utf-8'));
     await prisma.jobArtifact.create({ data: { jobId, type: 'vtt', storagePath: vttKey, mimeType: 'text/vtt', sizeBytes: Buffer.byteLength(vttContent) } });
 
     // Translation files
     if (translatedSegments) {
       const translationTxt = generateTxt(segmentsForArtifact, true);
       const tTxtKey = `jobs/${jobId}/translation.txt`;
-      await uploadArtifactToWeb(tTxtKey, Buffer.from(translationTxt, 'utf-8'));
+      await uploadArtifact(tTxtKey, Buffer.from(translationTxt, 'utf-8'));
       await prisma.jobArtifact.create({ data: { jobId, type: 'translation_txt', storagePath: tTxtKey, mimeType: 'text/plain', sizeBytes: Buffer.byteLength(translationTxt) } });
 
       const translationJson = generateJson(segmentsForArtifact, { ...metadata, targetLanguage: job.targetLanguage || undefined });
       const tJsonKey = `jobs/${jobId}/translation.json`;
-      await uploadArtifactToWeb(tJsonKey, Buffer.from(translationJson, 'utf-8'));
+      await uploadArtifact(tJsonKey, Buffer.from(translationJson, 'utf-8'));
       await prisma.jobArtifact.create({ data: { jobId, type: 'translation_json', storagePath: tJsonKey, mimeType: 'application/json', sizeBytes: Buffer.byteLength(translationJson) } });
     }
 
