@@ -85,20 +85,25 @@ class LocalStorageProvider implements StorageProvider {
 
 // Singleton storage instance
 let storage: StorageProvider | null = null;
+let _isR2 = false;
 
 export function getStorage(): StorageProvider {
   if (!storage) {
-    // Auto-detect: use R2 if credentials are set, otherwise local
-    const useR2 = process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_ACCOUNT_ID;
+    const useR2 = !!(process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_ACCOUNT_ID);
     const provider = process.env.STORAGE_PROVIDER || (useR2 ? 'r2' : 'local');
+
+    console.log(`[storage] R2 env check: ACCESS_KEY=${!!process.env.R2_ACCESS_KEY_ID}, SECRET=${!!process.env.R2_SECRET_ACCESS_KEY}, ACCOUNT=${!!process.env.R2_ACCOUNT_ID}`);
+    console.log(`[storage] Provider resolved to: ${provider}`);
 
     if (provider === 'r2') {
       const { R2StorageProvider } = require('./r2');
       storage = new R2StorageProvider();
+      _isR2 = true;
       console.log('[storage] Using Cloudflare R2');
     } else {
       const basePath = process.env.STORAGE_LOCAL_PATH || './storage';
       storage = new LocalStorageProvider(path.resolve(basePath));
+      _isR2 = false;
       console.log('[storage] Using local disk:', basePath);
     }
   }
@@ -106,6 +111,6 @@ export function getStorage(): StorageProvider {
 }
 
 export function isR2Storage(): boolean {
-  const s = getStorage();
-  return s.constructor.name === 'R2StorageProvider';
+  getStorage(); // ensure initialized
+  return _isR2;
 }
