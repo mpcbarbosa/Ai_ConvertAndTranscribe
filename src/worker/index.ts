@@ -546,7 +546,7 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     const convertMs = await endStage(jobId, 'converting', convertStart);
     await log.info('converting', `Converting completed in ${(convertMs / 1000).toFixed(1)}s`);
 
-    // ===== STAGE: TRANSCRIBING + POST-PROCESSING (PIPELINED) =====
+    // ===== STAGE: TRANSCRIBING (all chunks fast with Groq) =====
     if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
     const transcribeStart = await startStage(jobId, 'transcribing');
     await updateJobProgress(jobId, 'transcribing', 16, 'Splitting audio into chunks...');
@@ -560,32 +560,26 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     await log.info('transcribing', `Split into ${chunks.length} chunk(s)`);
 
     const transcriber = getTranscriptionProvider();
-    const TRANSCRIBE_CONCURRENCY = 4; // 4 parallel — balances speed vs rate limits
-    const CLEANUP_BATCH_SIZE = 80;
+    const TRANSCRIBE_CONCURRENCY = 8; // High concurrency for Groq (fast)
     const isBestQuality = mode === 'best_quality';
-    const cleanupModel = 'gpt-4o-mini'; // Fast cleanup — quality diff minimal
     let detectedLanguage: string | undefined;
     let completedTranscribe = 0;
-    let completedCleanup = 0;
-    const totalSteps = chunks.length * 2; // transcribe + cleanup per chunk
 
-    // Pre-allocate results: each chunk's cleaned segments
-    const cleanedChunkResults: Array<{
+    // PHASE 1: Transcribe ALL chunks as fast as possible
+    const rawChunkResults: Array<{
       segments: TranscriptSegmentData[];
       offsetMs: number;
       overlapMs: number;
     } | null> = new Array(chunks.length).fill(null);
 
-    // Pipeline: transcribe chunk → immediately cleanup its segments
-    // Run TRANSCRIBE_CONCURRENCY chunk pipelines in parallel
+    await log.info('transcribing', `Phase 1: Transcribing ${chunks.length} chunks (${TRANSCRIBE_CONCURRENCY} parallel)...`);
+
     for (let batchStart = 0; batchStart < chunks.length; batchStart += TRANSCRIBE_CONCURRENCY) {
       if (await checkCancelled(jobId)) throw new Error('Job cancelled by user');
 
       const batch = chunks.slice(batchStart, batchStart + TRANSCRIBE_CONCURRENCY);
-      await log.info('transcribing', `Pipeline batch ${batchStart + 1}-${Math.min(batchStart + TRANSCRIBE_CONCURRENCY, chunks.length)}/${chunks.length} (transcribe+cleanup parallel)...`);
 
-      const pipelinePromises = batch.map(async (chunk) => {
-        // Step A: Transcribe this chunk
+      const promises = batch.map(async (chunk) => {
         const result = await transcriber.transcribe(chunk.path, {
           language: job.sourceLanguage || undefined, mode,
           prompt: isBestQuality
@@ -594,44 +588,27 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
         });
 
         if (!detectedLanguage && result.detectedLanguage) detectedLanguage = result.detectedLanguage;
-        completedTranscribe++;
 
-        const progress = ((completedTranscribe + completedCleanup) / totalSteps) * 55 + 15;
-        await updateJobProgress(jobId, 'transcribing', progress, `Transcribed ${completedTranscribe}/${chunks.length}, cleaned ${completedCleanup}/${chunks.length}...`);
-        await log.info('transcribing', `Chunk ${chunk.index + 1} transcribed: ${result.segments.length} segments`);
-
-        // Step B: Immediately cleanup this chunk's segments (pipelined)
-        let cleanedSegments: TranscriptSegmentData[];
-        if (isBestQuality && result.segments.length > 0) {
-          // Split into sub-batches for cleanup
-          const subBatches: TranscriptSegmentData[][] = [];
-          for (let i = 0; i < result.segments.length; i += CLEANUP_BATCH_SIZE) {
-            subBatches.push(result.segments.slice(i, i + CLEANUP_BATCH_SIZE));
-          }
-          const cleanedSubs = await Promise.all(
-            subBatches.map(sub => cleanupSegmentsBatch(sub, job.sourceLanguage || undefined, cleanupModel))
-          );
-          cleanedSegments = cleanedSubs.flat();
-        } else {
-          cleanedSegments = result.segments.map(s => ({ ...s, text: lightCleanup(s.text) }));
-        }
-
-        completedCleanup++;
-        const progress2 = ((completedTranscribe + completedCleanup) / totalSteps) * 55 + 15;
-        await updateJobProgress(jobId, 'transcribing', progress2, `Transcribed ${completedTranscribe}/${chunks.length}, cleaned ${completedCleanup}/${chunks.length}...`);
-        await log.info('transcribing', `Chunk ${chunk.index + 1} cleaned: ${cleanedSegments.length} segments`);
-
-        cleanedChunkResults[chunk.index] = {
-          segments: cleanedSegments,
+        rawChunkResults[chunk.index] = {
+          segments: result.segments,
           offsetMs: Math.round(chunk.startSeconds * 1000),
           overlapMs: Math.round(overlapSeconds * 1000),
         };
+
+        completedTranscribe++;
+        const progress = 16 + (completedTranscribe / chunks.length) * 30; // 16-46%
+        await updateJobProgress(jobId, 'transcribing', progress, `Transcribed ${completedTranscribe}/${chunks.length}...`);
+        await log.info('transcribing', `Chunk ${chunk.index + 1}: ${result.segments.length} segments`);
       });
 
-      await Promise.all(pipelinePromises);
+      await Promise.all(promises);
     }
 
-    const validResults = cleanedChunkResults.filter((r): r is NonNullable<typeof r> => r !== null);
+    const transcribePhaseMs = Date.now() - transcribeStart.getTime();
+    await log.info('transcribing', `Phase 1 complete: ${chunks.length} chunks transcribed in ${(transcribePhaseMs / 1000).toFixed(1)}s`);
+
+    // Merge raw results first (before cleanup) for language detection
+    const rawResults = rawChunkResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
     const langCodeMap: Record<string, string> = {
       'portuguese': 'pt', 'english': 'en', 'spanish': 'es', 'french': 'fr',
@@ -643,12 +620,66 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
 
     await prisma.job.update({ where: { id: jobId }, data: { detectedLanguage: effectiveLanguage, providerUsed: transcriber.name } });
 
+    // PHASE 2: Cleanup ALL segments in massive parallel
+    const CLEANUP_CONCURRENCY = 10;
+    const CLEANUP_BATCH_SIZE = 80;
+    const cleanupModel = 'gpt-4o-mini';
+    let completedCleanup = 0;
+
+    await updateJobProgress(jobId, 'post_processing' as never, 48, 'Cleaning up transcript...');
+    await log.info('transcribing', `Phase 2: Cleaning ${rawResults.length} chunks (${CLEANUP_CONCURRENCY} parallel)...`);
+
+    const cleanedChunkResults: Array<typeof rawResults[0] | null> = new Array(rawResults.length).fill(null);
+
+    if (isBestQuality) {
+      // Flatten all segments into cleanup batches across all chunks, but track which chunk they belong to
+      // Process per-chunk to maintain ordering, but all chunks in parallel
+      for (let g = 0; g < rawResults.length; g += CLEANUP_CONCURRENCY) {
+        const group = rawResults.slice(g, g + CLEANUP_CONCURRENCY);
+
+        const cleanupPromises = group.map(async (chunkResult, idx) => {
+          const globalIdx = g + idx;
+          const subBatches: TranscriptSegmentData[][] = [];
+          for (let i = 0; i < chunkResult.segments.length; i += CLEANUP_BATCH_SIZE) {
+            subBatches.push(chunkResult.segments.slice(i, i + CLEANUP_BATCH_SIZE));
+          }
+
+          const cleanedSubs = await Promise.all(
+            subBatches.map(sub => cleanupSegmentsBatch(sub, effectiveLanguage, cleanupModel))
+          );
+
+          cleanedChunkResults[globalIdx] = {
+            ...chunkResult,
+            segments: cleanedSubs.flat(),
+          };
+
+          completedCleanup++;
+          const progress = 48 + (completedCleanup / rawResults.length) * 22; // 48-70%
+          await updateJobProgress(jobId, 'post_processing' as never, progress, `Cleaned ${completedCleanup}/${rawResults.length} chunks...`);
+          await log.info('transcribing', `Chunk ${globalIdx + 1} cleaned: ${cleanedSubs.flat().length} segments`);
+        });
+
+        await Promise.all(cleanupPromises);
+      }
+    } else {
+      // Balanced: local cleanup only (instant)
+      for (let i = 0; i < rawResults.length; i++) {
+        cleanedChunkResults[i] = {
+          ...rawResults[i],
+          segments: rawResults[i].segments.map(s => ({ ...s, text: lightCleanup(s.text) })),
+        };
+      }
+      completedCleanup = rawResults.length;
+    }
+
+    const validResults = cleanedChunkResults.filter((r): r is NonNullable<typeof r> => r !== null);
+
     await log.info('transcribing', 'Merging chunk results...');
     let mergedSegments = mergeChunkSegments(validResults);
     await log.info('transcribing', `Merged: ${mergedSegments.length} total segments`);
 
     const transcribeMs = await endStage(jobId, 'transcribing', transcribeStart);
-    await log.info('transcribing', `Transcription+cleanup pipeline completed in ${(transcribeMs / 1000).toFixed(1)}s`);
+    await log.info('transcribing', `Transcription+cleanup completed in ${(transcribeMs / 1000).toFixed(1)}s`);
 
     // Save segments to DB
     await updateJobProgress(jobId, 'post_processing' as never, 72, 'Saving segments...');
