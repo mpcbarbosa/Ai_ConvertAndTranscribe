@@ -27,40 +27,67 @@ class GroqWhisperProvider implements TranscriptionProvider {
   }
 
   async transcribe(audioPath: string, options: TranscriptionOptions): Promise<TranscriptionResult> {
-    const file = fs.createReadStream(audioPath);
+    const MAX_RETRIES = 3;
 
-    const response = await this.client.audio.transcriptions.create({
-      file,
-      model: 'whisper-large-v3-turbo',
-      response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
-      language: options.language || undefined,
-      prompt: options.prompt || 'Transcribe accurately with proper punctuation and capitalization.',
-    });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const file = fs.createReadStream(audioPath);
 
-    const segments: TranscriptSegmentData[] = [];
-    const rawSegments = (response as unknown as { segments?: Array<{
-      start: number; end: number; text: string;
-      avg_logprob?: number; no_speech_prob?: number;
-    }> }).segments || [];
+        const response = await this.client.audio.transcriptions.create({
+          file,
+          model: 'whisper-large-v3-turbo',
+          response_format: 'verbose_json',
+          timestamp_granularities: ['segment'],
+          language: options.language || undefined,
+          prompt: options.prompt || 'Transcribe accurately with proper punctuation and capitalization.',
+        });
 
-    for (const seg of rawSegments) {
-      if (seg.no_speech_prob && seg.no_speech_prob > 0.8) continue;
-      segments.push({
-        startMs: Math.round(seg.start * 1000),
-        endMs: Math.round(seg.end * 1000),
-        text: seg.text.trim(),
-        confidence: seg.avg_logprob ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) : undefined,
-      });
+        const segments: TranscriptSegmentData[] = [];
+        const rawSegments = (response as unknown as { segments?: Array<{
+          start: number; end: number; text: string;
+          avg_logprob?: number; no_speech_prob?: number;
+        }> }).segments || [];
+
+        for (const seg of rawSegments) {
+          if (seg.no_speech_prob && seg.no_speech_prob > 0.8) continue;
+          segments.push({
+            startMs: Math.round(seg.start * 1000),
+            endMs: Math.round(seg.end * 1000),
+            text: seg.text.trim(),
+            confidence: seg.avg_logprob ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) : undefined,
+          });
+        }
+
+        const detectedLanguage = (response as unknown as { language?: string }).language;
+        return {
+          segments,
+          detectedLanguage: detectedLanguage || undefined,
+          fullText: segments.map(s => s.text).join(' '),
+          provider: this.name,
+        };
+      } catch (err: unknown) {
+        const error = err as { status?: number; headers?: { get?: (k: string) => string | null } };
+        if (error.status === 429 && attempt < MAX_RETRIES) {
+          // Parse retry-after from headers or error message
+          let waitSec = 60; // default wait
+          try {
+            const retryAfter = error.headers?.get?.('retry-after');
+            if (retryAfter) waitSec = parseInt(retryAfter) || 60;
+          } catch { /* use default */ }
+
+          // Also try to parse from error message "Please try again in 4m9s"
+          const msg = String(err);
+          const timeMatch = msg.match(/try again in (\d+)m(\d+)s/);
+          if (timeMatch) waitSec = parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]);
+
+          console.log(`[groq] Rate limited. Waiting ${waitSec}s before retry ${attempt + 1}/${MAX_RETRIES}...`);
+          await new Promise(r => setTimeout(r, waitSec * 1000));
+          continue;
+        }
+        throw err;
+      }
     }
-
-    const detectedLanguage = (response as unknown as { language?: string }).language;
-    return {
-      segments,
-      detectedLanguage: detectedLanguage || undefined,
-      fullText: segments.map(s => s.text).join(' '),
-      provider: this.name,
-    };
+    throw new Error('Max retries exceeded for Groq transcription');
   }
 }
 
