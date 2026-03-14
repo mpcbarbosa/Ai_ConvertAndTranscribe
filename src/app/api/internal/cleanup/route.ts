@@ -2,45 +2,36 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 
-/**
- * Cleanup local disk storage to free space.
- * Deletes all files in /opt/render/project/storage/
- * Safe to call when using R2 (files are in cloud).
- */
+const cleanDir = async (dir: string): Promise<{ files: number; bytes: number }> => {
+  let files = 0;
+  let bytes = 0;
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const sub = await cleanDir(fullPath);
+        files += sub.files;
+        bytes += sub.bytes;
+        await fs.rmdir(fullPath).catch(() => {});
+      } else {
+        const stat = await fs.stat(fullPath).catch(() => null);
+        if (stat) bytes += stat.size;
+        await fs.unlink(fullPath).catch(() => {});
+        files++;
+      }
+    }
+  } catch { /* dir doesn't exist */ }
+  return { files, bytes };
+};
+
 export async function POST() {
   try {
-    const storagePath = process.env.STORAGE_LOCAL_PATH || '/opt/render/project/storage';
-    const resolvedPath = path.resolve(storagePath);
-
-    // List and delete contents
-    let freedFiles = 0;
-    let freedBytes = 0;
-
-    async function cleanDir(dir: string) {
-      try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            await cleanDir(fullPath);
-            await fs.rmdir(fullPath).catch(() => {});
-          } else {
-            const stat = await fs.stat(fullPath).catch(() => null);
-            if (stat) freedBytes += stat.size;
-            await fs.unlink(fullPath).catch(() => {});
-            freedFiles++;
-          }
-        }
-      } catch { /* dir doesn't exist */ }
-    }
-
-    await cleanDir(resolvedPath);
-
+    const storagePath = path.resolve(process.env.STORAGE_LOCAL_PATH || '/opt/render/project/storage');
+    const { files, bytes } = await cleanDir(storagePath);
     return NextResponse.json({
-      ok: true,
-      freedFiles,
-      freedMB: Math.round(freedBytes / 1024 / 1024),
-      message: `Cleaned ${freedFiles} files, freed ${Math.round(freedBytes / 1024 / 1024)} MB`,
+      ok: true, freedFiles: files, freedMB: Math.round(bytes / 1024 / 1024),
+      message: `Cleaned ${files} files, freed ${Math.round(bytes / 1024 / 1024)} MB`,
     });
   } catch (err) {
     console.error('Cleanup error:', err);
