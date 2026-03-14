@@ -4,6 +4,9 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import type { Readable } from 'stream';
@@ -131,5 +134,76 @@ export class R2StorageProvider implements StorageProvider {
 
   getLocalPath(_key: string): string {
     throw new Error('R2 storage does not support local paths — use read/readStream instead');
+  }
+
+  /**
+   * Concatenate multiple chunk keys into a single destination key using
+   * S3 multipart upload. Each chunk is read individually (not all at once)
+   * to stay within memory limits.
+   * Note: S3 multipart requires parts >= 5MB (except last). If chunks are
+   * smaller, we batch them together.
+   */
+  async concatenateChunks(chunkKeys: string[], destKey: string): Promise<number> {
+    const MIN_PART_SIZE = 5.5 * 1024 * 1024; // 5.5MB to be safe
+
+    // Start multipart upload
+    const createRes = await this.client.send(new CreateMultipartUploadCommand({
+      Bucket: this.bucket,
+      Key: destKey,
+    }));
+    const uploadId = createRes.UploadId!;
+
+    const parts: Array<{ ETag: string; PartNumber: number }> = [];
+    let partNumber = 1;
+    let totalSize = 0;
+    let buffer = Buffer.alloc(0);
+
+    try {
+      for (let i = 0; i < chunkKeys.length; i++) {
+        const chunkData = await this.read(chunkKeys[i]);
+        buffer = Buffer.concat([buffer, chunkData]);
+        totalSize += chunkData.length;
+
+        const isLast = i === chunkKeys.length - 1;
+
+        // Upload when buffer >= MIN_PART_SIZE or on last chunk
+        if (buffer.length >= MIN_PART_SIZE || isLast) {
+          const uploadRes = await this.client.send(new UploadPartCommand({
+            Bucket: this.bucket,
+            Key: destKey,
+            UploadId: uploadId,
+            PartNumber: partNumber,
+            Body: buffer,
+          }));
+          parts.push({ ETag: uploadRes.ETag!, PartNumber: partNumber });
+          partNumber++;
+          buffer = Buffer.alloc(0);
+        }
+      }
+
+      // Complete multipart upload
+      await this.client.send(new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: destKey,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: parts },
+      }));
+
+      // Delete chunks
+      for (const key of chunkKeys) {
+        await this.delete(key);
+      }
+
+      return totalSize;
+    } catch (err) {
+      // Abort multipart upload on error
+      try {
+        const { AbortMultipartUploadCommand } = await import('@aws-sdk/client-s3');
+        await this.client.send(new AbortMultipartUploadCommand({
+          Bucket: this.bucket, Key: destKey, UploadId: uploadId,
+        }));
+      } catch { /* ignore abort errors */ }
+      throw err;
+    }
   }
 }

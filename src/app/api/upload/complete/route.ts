@@ -22,18 +22,17 @@ async function reassembleFile(upload: UploadInfo): Promise<{ storagePath: string
   const storagePath = `uploads/${uuidv4()}/${safeFileName}`;
 
   if (isR2Storage()) {
-    // Read chunks from R2, concatenate, save final file to R2
-    const chunks: Buffer[] = [];
+    // Use multipart upload to concatenate chunks directly in R2
+    // Never loads full file into memory
+    const chunkKeys: string[] = [];
     for (let i = 0; i < upload.totalChunks; i++) {
-      const chunkKey = `chunks/${upload.uploadId}/chunk_${String(i).padStart(5, '0')}`;
-      const chunkData = await storage.read(chunkKey);
-      chunks.push(chunkData);
-      // Delete chunk after reading
-      await storage.delete(chunkKey);
+      chunkKeys.push(`chunks/${upload.uploadId}/chunk_${String(i).padStart(5, '0')}`);
     }
-    const finalBuffer = Buffer.concat(chunks);
-    await storage.save(storagePath, finalBuffer);
-    return { storagePath, actualSize: finalBuffer.length };
+
+    const { R2StorageProvider } = require('../../../../lib/storage/r2');
+    const r2 = storage as InstanceType<typeof R2StorageProvider>;
+    const totalSize = await r2.concatenateChunks(chunkKeys, storagePath);
+    return { storagePath, actualSize: totalSize };
   } else {
     // Local: read from local chunks dir
     const chunksDir = path.join(storage.getLocalPath(''), 'chunks', upload.uploadId);
