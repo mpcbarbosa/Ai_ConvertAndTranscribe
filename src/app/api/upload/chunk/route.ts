@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStorage } from '../../../../lib/storage';
+import { getStorage, isR2Storage } from '../../../../lib/storage';
 import fs from 'fs/promises';
 import path from 'path';
 
 export const runtime = 'nodejs';
 
 /**
- * Receive a single chunk of a file upload.
- * Each chunk is max ~50MB, well within Render's 100MB proxy limit.
+ * Receive a single chunk. Stored in R2 or local disk.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -19,28 +18,27 @@ export async function POST(request: NextRequest) {
     if (!chunk || !uploadId || chunkIndex === null) {
       return NextResponse.json({ error: 'Missing chunk data' }, { status: 400 });
     }
-
-    // Validate uploadId format (prevent path traversal)
     if (!/^[0-9a-f-]{36}$/.test(uploadId)) {
       return NextResponse.json({ error: 'Invalid upload ID' }, { status: 400 });
     }
 
-    const storage = getStorage();
-    const chunksDir = path.join(storage.getLocalPath(''), 'chunks', uploadId);
-
-    // Ensure directory exists
-    await fs.mkdir(chunksDir, { recursive: true });
-
-    // Save chunk to disk
-    const chunkPath = path.join(chunksDir, `chunk_${String(chunkIndex).padStart(5, '0')}`);
     const buffer = Buffer.from(await chunk.arrayBuffer());
-    await fs.writeFile(chunkPath, buffer);
+    const chunkKey = `chunks/${uploadId}/chunk_${String(chunkIndex).padStart(5, '0')}`;
 
-    return NextResponse.json({
-      uploadId,
-      chunkIndex: parseInt(chunkIndex),
-      size: buffer.length,
-    });
+    if (isR2Storage()) {
+      // Save directly to R2
+      const storage = getStorage();
+      await storage.save(chunkKey, buffer);
+    } else {
+      // Save to local disk
+      const storage = getStorage();
+      const chunksDir = path.join(storage.getLocalPath(''), 'chunks', uploadId);
+      await fs.mkdir(chunksDir, { recursive: true });
+      const chunkPath = path.join(chunksDir, `chunk_${String(chunkIndex).padStart(5, '0')}`);
+      await fs.writeFile(chunkPath, buffer);
+    }
+
+    return NextResponse.json({ uploadId, chunkIndex: parseInt(chunkIndex), size: buffer.length });
   } catch (err) {
     console.error('Chunk upload error:', err);
     return NextResponse.json({ error: 'Failed to upload chunk' }, { status: 500 });

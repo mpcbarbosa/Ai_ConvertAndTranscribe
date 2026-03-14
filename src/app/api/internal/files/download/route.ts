@@ -1,35 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStorage } from '../../../../../lib/storage';
+import { getStorage, isR2Storage } from '../../../../../lib/storage';
 import { createReadStream, statSync, existsSync } from 'fs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Download endpoint using query param for storage key.
- * Usage: GET /api/internal/files/download?key=uploads/uuid/filename.mp4
+ * Download endpoint. Serves from R2 or local disk.
  * Supports Range requests for chunked downloading.
  */
 export async function GET(request: NextRequest) {
   try {
     const key = request.nextUrl.searchParams.get('key');
-    if (!key) {
-      return NextResponse.json({ error: 'Missing key parameter' }, { status: 400 });
-    }
+    if (!key) return NextResponse.json({ error: 'Missing key' }, { status: 400 });
 
     const storage = getStorage();
-    const filePath = storage.getLocalPath(key);
 
-    console.log(`[files/download] Key: ${key}, Path: ${filePath}, Exists: ${existsSync(filePath)}`);
+    if (isR2Storage()) {
+      // R2 mode: get size, then serve range or full
+      const fileSize = await storage.getSize(key);
+      if (fileSize === 0) return NextResponse.json({ error: 'File not found' }, { status: 404 });
 
-    if (!existsSync(filePath)) {
-      return NextResponse.json({ error: 'File not found', key }, { status: 404 });
+      const range = request.headers.get('range');
+      if (range) {
+        const match = range.match(/bytes=(\d+)-(\d*)/);
+        if (match) {
+          const start = parseInt(match[1]);
+          const rawEnd = match[2] ? parseInt(match[2]) : start + 10 * 1024 * 1024 - 1;
+          const end = Math.min(rawEnd, fileSize - 1);
+          const chunkSize = end - start + 1;
+
+          // Use R2 readRange
+          const { R2StorageProvider } = require('../../../../../lib/storage/r2');
+          const r2 = storage as InstanceType<typeof R2StorageProvider>;
+          const data = await r2.readRange(key, start, end);
+
+          return new NextResponse(new Uint8Array(data), {
+            status: 206,
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Content-Length': chunkSize.toString(),
+              'Accept-Ranges': 'bytes',
+            },
+          });
+        }
+      }
+
+      // Full file from R2
+      const data = await storage.read(key);
+      return new NextResponse(new Uint8Array(data), {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': fileSize.toString(),
+          'Accept-Ranges': 'bytes',
+        },
+      });
     }
+
+    // Local disk mode
+    const filePath = storage.getLocalPath(key);
+    if (!existsSync(filePath)) return NextResponse.json({ error: 'File not found' }, { status: 404 });
 
     const stat = statSync(filePath);
     const fileSize = stat.size;
-    console.log(`[files/download] Size: ${(fileSize / 1024 / 1024).toFixed(1)} MB`);
-
     const range = request.headers.get('range');
 
     if (range) {
@@ -39,8 +73,6 @@ export async function GET(request: NextRequest) {
         const rawEnd = match[2] ? parseInt(match[2]) : start + 10 * 1024 * 1024 - 1;
         const end = Math.min(rawEnd, fileSize - 1);
         const chunkSize = end - start + 1;
-
-        console.log(`[files/download] Range: ${start}-${end} (${(chunkSize / 1024 / 1024).toFixed(1)} MB)`);
 
         const stream = createReadStream(filePath, { start, end });
         const webStream = new ReadableStream({
@@ -64,7 +96,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // No range — stream full file
     const stream = createReadStream(filePath);
     const webStream = new ReadableStream({
       start(controller) {

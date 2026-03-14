@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '../../../../lib/db/client';
-import { getStorage } from '../../../../lib/storage';
+import { getStorage, isR2Storage } from '../../../../lib/storage';
 import { enqueueJob } from '../../../../lib/queue';
 import { sanitizeFileName, isVideoFile, getFileExtension } from '../../../../lib/utils';
 import { SUPPORTED_EXTENSIONS } from '../../../../types';
@@ -16,29 +16,44 @@ interface UploadInfo {
   totalChunks: number;
 }
 
-async function reassembleFile(upload: UploadInfo, storage: ReturnType<typeof getStorage>): Promise<{ storagePath: string; actualSize: number }> {
-  const chunksDir = path.join(storage.getLocalPath(''), 'chunks', upload.uploadId);
+async function reassembleFile(upload: UploadInfo): Promise<{ storagePath: string; actualSize: number }> {
+  const storage = getStorage();
   const safeFileName = sanitizeFileName(upload.fileName);
   const storagePath = `uploads/${uuidv4()}/${safeFileName}`;
-  const finalPath = storage.getLocalPath(storagePath);
 
-  await fs.mkdir(path.dirname(finalPath), { recursive: true });
-
-  const writeHandle = await fs.open(finalPath, 'w');
-  try {
+  if (isR2Storage()) {
+    // Read chunks from R2, concatenate, save final file to R2
+    const chunks: Buffer[] = [];
     for (let i = 0; i < upload.totalChunks; i++) {
-      const chunkPath = path.join(chunksDir, `chunk_${String(i).padStart(5, '0')}`);
-      const chunkData = await fs.readFile(chunkPath);
-      await writeHandle.write(chunkData);
+      const chunkKey = `chunks/${upload.uploadId}/chunk_${String(i).padStart(5, '0')}`;
+      const chunkData = await storage.read(chunkKey);
+      chunks.push(chunkData);
+      // Delete chunk after reading
+      await storage.delete(chunkKey);
     }
-  } finally {
-    await writeHandle.close();
+    const finalBuffer = Buffer.concat(chunks);
+    await storage.save(storagePath, finalBuffer);
+    return { storagePath, actualSize: finalBuffer.length };
+  } else {
+    // Local: read from local chunks dir
+    const chunksDir = path.join(storage.getLocalPath(''), 'chunks', upload.uploadId);
+    const finalPath = storage.getLocalPath(storagePath);
+    await fs.mkdir(path.dirname(finalPath), { recursive: true });
+
+    const writeHandle = await fs.open(finalPath, 'w');
+    try {
+      for (let i = 0; i < upload.totalChunks; i++) {
+        const chunkPath = path.join(chunksDir, `chunk_${String(i).padStart(5, '0')}`);
+        const chunkData = await fs.readFile(chunkPath);
+        await writeHandle.write(chunkData);
+      }
+    } finally {
+      await writeHandle.close();
+    }
+    const stat = await fs.stat(finalPath);
+    await fs.rm(chunksDir, { recursive: true, force: true }).catch(() => {});
+    return { storagePath, actualSize: stat.size };
   }
-
-  const stat = await fs.stat(finalPath);
-  await fs.rm(chunksDir, { recursive: true, force: true }).catch(() => {});
-
-  return { storagePath, actualSize: stat.size };
 }
 
 /**
@@ -74,12 +89,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const storage = getStorage();
-
     // Reassemble all files
     const files: Array<{ storagePath: string; actualSize: number; fileName: string; mimeType: string }> = [];
     for (const upload of uploads) {
-      const { storagePath, actualSize } = await reassembleFile(upload, storage);
+      const { storagePath, actualSize } = await reassembleFile(upload);
       files.push({ storagePath, actualSize, fileName: upload.fileName, mimeType: upload.mimeType });
     }
 

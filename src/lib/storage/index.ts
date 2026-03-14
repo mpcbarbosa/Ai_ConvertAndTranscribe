@@ -88,14 +88,24 @@ let storage: StorageProvider | null = null;
 
 export function getStorage(): StorageProvider {
   if (!storage) {
-    const provider = process.env.STORAGE_PROVIDER || 'local';
-    if (provider === 'local') {
+    // Auto-detect: use R2 if credentials are set, otherwise local
+    const useR2 = process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_ACCOUNT_ID;
+    const provider = process.env.STORAGE_PROVIDER || (useR2 ? 'r2' : 'local');
+
+    if (provider === 'r2') {
+      const { R2StorageProvider } = require('./r2');
+      storage = new R2StorageProvider();
+      console.log('[storage] Using Cloudflare R2');
+    } else {
       const basePath = process.env.STORAGE_LOCAL_PATH || './storage';
       storage = new LocalStorageProvider(path.resolve(basePath));
-    } else {
-      // Future: S3 provider
-      throw new Error(`Unsupported storage provider: ${provider}`);
+      console.log('[storage] Using local disk:', basePath);
     }
   }
   return storage;
+}
+
+export function isR2Storage(): boolean {
+  const s = getStorage();
+  return s.constructor.name === 'R2StorageProvider';
 }
