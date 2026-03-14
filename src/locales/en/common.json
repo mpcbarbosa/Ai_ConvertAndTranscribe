@@ -168,7 +168,9 @@
     "lang_es": "Spanish",
     "lang_fr": "French",
     "lang_de": "German",
-    "lang_it": "Italian"
+    "lang_it": "Italian",
+    "delete": "Delete",
+    "delete_confirm": "Are you sure you want to delete this job? This will permanently remove all files and data."
   },
   "status": {
     "uploaded": "Uploaded",

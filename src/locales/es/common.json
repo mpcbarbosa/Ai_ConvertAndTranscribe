@@ -168,7 +168,9 @@
     "lang_es": "Español",
     "lang_fr": "Francés",
     "lang_de": "Alemán",
-    "lang_it": "Italiano"
+    "lang_it": "Italiano",
+    "delete": "Eliminar",
+    "delete_confirm": "¿Está seguro de que quiere eliminar este trabajo? Todos los archivos y datos se eliminarán permanentemente."
   },
   "status": {
     "uploaded": "Subido",

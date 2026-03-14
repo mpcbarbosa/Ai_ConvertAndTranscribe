@@ -168,7 +168,9 @@
     "lang_es": "Espanhol",
     "lang_fr": "Francês",
     "lang_de": "Alemão",
-    "lang_it": "Italiano"
+    "lang_it": "Italiano",
+    "delete": "Apagar",
+    "delete_confirm": "Tem a certeza que quer apagar este job? Todos os ficheiros e dados serão permanentemente removidos."
   },
   "status": {
     "uploaded": "Enviado",

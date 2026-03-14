@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createTranslator } from '../../lib/i18n';
 import { formatBytes, formatDuration, formatMs } from '../../lib/utils';
 import type { Locale } from '../../types';
 import {
   ArrowLeft, Download, RefreshCw, Loader2, CheckCircle2, XCircle,
-  FileAudio, FileVideo, Sparkles, Scale, AlertCircle, Ban, Clock,
+  FileAudio, FileVideo, Sparkles, Scale, AlertCircle, Ban, Clock, Trash2,
 } from 'lucide-react';
 
 interface Artifact { id: string; type: string; mimeType: string; sizeBytes: string; }
@@ -57,6 +58,7 @@ function formatTimingMs(ms: number): string {
 
 export function JobDetail({ locale, dict, jobId }: Props) {
   const t = useMemo(() => createTranslator(dict), [dict]);
+  const router = useRouter();
   const [job, setJob] = useState<JobData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -94,6 +96,14 @@ export function JobDetail({ locale, dict, jobId }: Props) {
     setCancelling(true);
     try { await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' }); await fetchJob(); }
     catch { /* ignore */ } finally { setCancelling(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(t('job_detail.delete_confirm'))) return;
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/delete`, { method: 'POST' });
+      if (res.ok) router.push(`/${locale}/jobs`);
+    } catch { /* ignore */ }
   };
 
   if (loading) return (
@@ -171,6 +181,10 @@ export function JobDetail({ locale, dict, jobId }: Props) {
                 <RefreshCw className={`h-4 w-4 ${retrying ? 'animate-spin' : ''}`} />{t('job_detail.retry')}
               </button>
             )}
+            <button onClick={handleDelete}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 shadow-sm hover:bg-red-50 transition-colors">
+              <Trash2 className="h-4 w-4" />{t('job_detail.delete')}
+            </button>
           </div>
         </div>
       </div>
