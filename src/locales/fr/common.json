@@ -160,7 +160,14 @@
     "version_history": "Historique des Versions",
     "restore": "Restaurer",
     "no_technical_report": "Rapport technique non disponible",
-    "no_technical_report_hint": "Spécifiez un contexte de domaine lors du téléchargement pour générer une analyse technique spécialisée"
+    "no_technical_report_hint": "Spécifiez un contexte de domaine lors du téléchargement pour générer une analyse technique spécialisée",
+    "translate_report": "Traduire le rapport en :",
+    "lang_en": "Anglais",
+    "lang_pt": "Portugais",
+    "lang_es": "Espagnol",
+    "lang_fr": "Français",
+    "lang_de": "Allemand",
+    "lang_it": "Italien"
   },
   "status": {
     "uploaded": "Téléchargé",

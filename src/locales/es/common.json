@@ -160,7 +160,14 @@
     "version_history": "Historial de Versiones",
     "restore": "Restaurar",
     "no_technical_report": "Informe técnico no disponible",
-    "no_technical_report_hint": "Especifique un contexto de dominio al subir para generar un análisis técnico especializado"
+    "no_technical_report_hint": "Especifique un contexto de dominio al subir para generar un análisis técnico especializado",
+    "translate_report": "Traducir informe a:",
+    "lang_en": "Inglés",
+    "lang_pt": "Portugués",
+    "lang_es": "Español",
+    "lang_fr": "Francés",
+    "lang_de": "Alemán",
+    "lang_it": "Italiano"
   },
   "status": {
     "uploaded": "Subido",

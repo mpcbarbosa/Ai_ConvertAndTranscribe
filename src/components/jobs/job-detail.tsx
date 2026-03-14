@@ -465,6 +465,29 @@ function ReportTab({ job, locale, t, onReportUpdated }: {
     }
   };
 
+  const [translating, setTranslating] = useState(false);
+  const [translateLang, setTranslateLang] = useState('');
+
+  const handleTranslate = async (lang: string) => {
+    if (!lang) return;
+    setTranslating(true);
+    setEnrichError(null);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/translate-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetLanguage: lang, reportType: activeReport }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Translation failed');
+      setTranslateLang('');
+      onReportUpdated();
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : 'Failed to translate');
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   const presets = [
     { key: 'enrich_technical', icon: '🔧' },
     { key: 'enrich_executive', icon: '📊' },
@@ -534,6 +557,21 @@ function ReportTab({ job, locale, t, onReportUpdated }: {
           {!job.domainContext && (
             <p className="text-xs text-muted-foreground mt-2">{t('job_detail.no_technical_report_hint')}</p>
           )}
+        </div>
+      )}
+
+      {/* Translate Report */}
+      {currentReport && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium text-foreground">{t('job_detail.translate_report')}</span>
+          {['en', 'pt', 'es', 'fr', 'de', 'it'].map(lang => (
+            <button key={lang} onClick={() => handleTranslate(lang)}
+              disabled={translating || enriching}
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-white px-2.5 py-1 text-xs font-medium text-foreground hover:bg-primary/5 hover:border-primary/30 transition-colors disabled:opacity-50">
+              {translating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              {t(`job_detail.lang_${lang}`)}
+            </button>
+          ))}
         </div>
       )}
 

@@ -160,7 +160,14 @@
     "version_history": "Version History",
     "restore": "Restore",
     "no_technical_report": "No technical report available",
-    "no_technical_report_hint": "Specify a domain context when uploading to generate a specialized technical analysis"
+    "no_technical_report_hint": "Specify a domain context when uploading to generate a specialized technical analysis",
+    "translate_report": "Translate report to:",
+    "lang_en": "English",
+    "lang_pt": "Portuguese",
+    "lang_es": "Spanish",
+    "lang_fr": "French",
+    "lang_de": "German",
+    "lang_it": "Italian"
   },
   "status": {
     "uploaded": "Uploaded",

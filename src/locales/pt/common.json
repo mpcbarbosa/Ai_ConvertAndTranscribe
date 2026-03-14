@@ -160,7 +160,14 @@
     "version_history": "Histórico de Versões",
     "restore": "Restaurar",
     "no_technical_report": "Relatório técnico não disponível",
-    "no_technical_report_hint": "Especifique um contexto de domínio no upload para gerar uma análise técnica especializada"
+    "no_technical_report_hint": "Especifique um contexto de domínio no upload para gerar uma análise técnica especializada",
+    "translate_report": "Traduzir relatório para:",
+    "lang_en": "Inglês",
+    "lang_pt": "Português",
+    "lang_es": "Espanhol",
+    "lang_fr": "Francês",
+    "lang_de": "Alemão",
+    "lang_it": "Italiano"
   },
   "status": {
     "uploaded": "Enviado",
