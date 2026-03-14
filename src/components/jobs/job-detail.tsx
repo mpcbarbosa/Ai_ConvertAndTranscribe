@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createTranslator } from '../../lib/i18n';
@@ -65,21 +65,40 @@ export function JobDetail({ locale, dict, jobId }: Props) {
   const [retrying, setRetrying] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
-  const fetchJob = useCallback(async () => {
+  const fetchJob = useCallback(async (light = false) => {
     try {
-      const res = await fetch(`/api/jobs/${jobId}`);
+      const url = light ? `/api/jobs/${jobId}?light=1` : `/api/jobs/${jobId}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Not found');
-      setJob(await res.json());
+      const data = await res.json();
+      setJob(prev => {
+        // In light mode, preserve existing segments/logs if we have them
+        if (light && prev && prev.segments.length > 0) {
+          return { ...data, segments: prev.segments, logs: prev.logs, reportVersions: prev.reportVersions };
+        }
+        return data;
+      });
     } catch { /* ignore */ } finally { setLoading(false); }
   }, [jobId]);
 
-  useEffect(() => { fetchJob(); }, [fetchJob]);
+  // Initial full fetch
+  useEffect(() => { fetchJob(false); }, [fetchJob]);
 
   const jobStatus = job?.status;
+  const prevStatus = useRef(jobStatus);
+
   useEffect(() => {
     const isProcessing = jobStatus && !['completed', 'failed', 'cancelled'].includes(jobStatus);
+    const justFinished = prevStatus.current && !['completed', 'failed', 'cancelled'].includes(prevStatus.current) &&
+      jobStatus && ['completed', 'failed', 'cancelled'].includes(jobStatus);
+
+    // When job finishes, do a full fetch to get all segments
+    if (justFinished) fetchJob(false);
+
+    prevStatus.current = jobStatus;
+
     if (isProcessing) {
-      const interval = setInterval(fetchJob, 2000);
+      const interval = setInterval(() => fetchJob(true), 2000); // Light polling
       return () => clearInterval(interval);
     }
   }, [fetchJob, jobStatus]);
@@ -323,7 +342,7 @@ export function JobDetail({ locale, dict, jobId }: Props) {
         )}
 
         {activeTab === 'report' && (
-          <ReportTab job={job} locale={locale} t={t} onReportUpdated={fetchJob} />
+          <ReportTab job={job} locale={locale} t={t} onReportUpdated={() => fetchJob(false)} />
         )}
 
         {activeTab === 'segments' && (
