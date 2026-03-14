@@ -58,7 +58,8 @@
     "assembling": "Ensamblando archivos...",
     "domain_context": "Dominio / Contexto de la Reunión (opcional)",
     "domain_context_placeholder": "ej: Implementación SAP S/4HANA, Estrategia Comercial, Revisión de Arquitectura Técnica...",
-    "domain_context_help": "Si se especifica, se generará un informe técnico especializado además del informe de la reunión"
+    "domain_context_help": "Si se especifica, se generará un informe técnico especializado además del informe de la reunión",
+    "no_files_yet": "Ningún archivo seleccionado"
   },
   "jobs": {
     "title": "Mis Trabajos",

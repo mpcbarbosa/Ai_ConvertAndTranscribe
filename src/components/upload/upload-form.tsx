@@ -60,8 +60,8 @@ export function UploadForm({ locale, dict }: Props) {
   const [processingMode, setProcessingMode] = useState<'balanced' | 'best_quality'>('balanced');
   const [domainContext, setDomainContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState('');
+  const [fileProgresses, setFileProgresses] = useState<number[]>([]);
+  const [activeFileIdx, setActiveFileIdx] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -96,26 +96,22 @@ export function UploadForm({ locale, dict }: Props) {
 
   const handleSubmit = async () => {
     if (files.length === 0) { setError(t('upload.validation.file_required')); return; }
-    setIsSubmitting(true); setUploadProgress(0); setError(null);
+    setIsSubmitting(true); setError(null);
+    setFileProgresses(new Array(files.length).fill(0));
 
     try {
       const uploads: Array<{ uploadId: string; fileName: string; fileSize: number; mimeType: string; totalChunks: number }> = [];
-      const progresses = new Array(files.length).fill(0);
-      const updateOverall = () => {
-        let done = 0; files.forEach((f, i) => { done += f.size * (progresses[i] / 100); });
-        setUploadProgress(Math.round((done / totalSize) * 92));
-      };
 
       for (let fi = 0; fi < files.length; fi++) {
-        setUploadStatus(files.length > 1
-          ? t('upload.uploading_file', { current: String(fi + 1), total: String(files.length) })
-          : t('upload.submitting'));
-        const result = await uploadFileChunked(files[fi], (pct) => { progresses[fi] = pct; updateOverall(); });
+        setActiveFileIdx(fi);
+        const result = await uploadFileChunked(files[fi], (pct) => {
+          setFileProgresses(prev => { const n = [...prev]; n[fi] = pct; return n; });
+        });
+        setFileProgresses(prev => { const n = [...prev]; n[fi] = 100; return n; });
         uploads.push(result);
       }
 
-      setUploadProgress(95);
-      setUploadStatus(t('upload.assembling'));
+      setActiveFileIdx(-1);
 
       const completeRes = await fetch('/api/upload/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -132,99 +128,113 @@ export function UploadForm({ locale, dict }: Props) {
 
       if (!completeRes.ok) throw new Error((await completeRes.json()).error || 'Failed');
       const result = await completeRes.json();
-      setUploadProgress(100); setSuccess(true);
+      setSuccess(true);
       setTimeout(() => router.push(`/${locale}/jobs/${result.id}`), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('upload.error'));
     } finally {
-      setIsSubmitting(false); setUploadProgress(0); setUploadStatus('');
+      setIsSubmitting(false); setFileProgresses([]); setActiveFileIdx(-1);
     }
   };
 
   const sameLanguage = sourceLanguage && targetLanguage && sourceLanguage === targetLanguage;
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="mb-8">
+    <div className="max-w-5xl mx-auto">
+      <div className="mb-4">
         <h1 className="text-2xl font-bold text-foreground">{t('upload.title')}</h1>
-        <p className="mt-1 text-muted-foreground">{t('upload.subtitle')}</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">{t('upload.subtitle')}</p>
       </div>
 
       {success && (
-        <div className="mb-6 flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
-          <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3">
+          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
           <p className="text-sm font-medium text-green-800">{t('upload.success')}</p>
         </div>
       )}
-
       {error && (
-        <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
-          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-3">
+          <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
           <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
 
-      <div className="space-y-6">
+      {/* === TOP ROW: Dropzone (left) + File List (right) === */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         {/* Dropzone */}
-        <div {...getRootProps()} className={`relative cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center transition-all ${
+        <div {...getRootProps()} className={`relative cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-all flex flex-col items-center justify-center min-h-[180px] ${
           isDragActive ? 'border-primary bg-primary/5' : files.length > 0 ? 'border-green-300 bg-green-50/50' : 'border-border hover:border-primary/50 hover:bg-muted/30'
         }`}>
           <input {...getInputProps()} />
-          <div className="space-y-3">
-            <Upload className="mx-auto h-10 w-10 text-muted-foreground/50" />
-            <p className="text-sm font-medium text-muted-foreground">{isDragActive ? t('upload.dropzone_active') : t('upload.dropzone')}</p>
-            <p className="text-xs text-muted-foreground/70">{t('upload.supported_formats')}</p>
-            <p className="text-xs text-muted-foreground/70">{t('upload.max_size', { size: formatBytes(MAX_SIZE) })}</p>
-            <p className="text-xs text-primary font-medium">{t('upload.multi_file_hint')}</p>
-          </div>
+          <Upload className="mx-auto h-8 w-8 text-muted-foreground/50 mb-2" />
+          <p className="text-sm font-medium text-muted-foreground">{isDragActive ? t('upload.dropzone_active') : t('upload.dropzone')}</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">{t('upload.supported_formats')}</p>
+          <p className="text-xs text-primary font-medium mt-1">{t('upload.multi_file_hint')}</p>
         </div>
 
         {/* File List */}
-        {files.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">{t('upload.files_selected', { count: String(files.length) })}</span>
-              <span className="text-xs text-muted-foreground">{t('upload.total_size', { size: formatBytes(totalSize) })}</span>
+        <div className="rounded-xl border border-border bg-white p-3 min-h-[180px] flex flex-col">
+          {files.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-sm text-muted-foreground">{t('upload.no_files_yet')}</p>
             </div>
-            {multi && <p className="text-xs text-primary">{t('upload.reorder_hint')}</p>}
-            <div className="space-y-1.5">
-              {files.map((file, i) => (
-                <div key={`${file.name}-${i}`} className="flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2">
-                  {multi && (
-                    <div className="flex flex-col">
-                      <button onClick={(e) => { e.stopPropagation(); moveFile(i, 'up'); }} disabled={i === 0}
-                        className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5"><ChevronUp className="h-3.5 w-3.5" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); moveFile(i, 'down'); }} disabled={i === files.length - 1}
-                        className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5"><ChevronDown className="h-3.5 w-3.5" /></button>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-foreground">{t('upload.files_selected', { count: String(files.length) })}</span>
+                <span className="text-xs text-muted-foreground">{formatBytes(totalSize)}</span>
+              </div>
+              <div className="space-y-1 flex-1 overflow-y-auto max-h-[200px]">
+                {files.map((file, i) => {
+                  const pct = fileProgresses[i] || 0;
+                  const isActive = activeFileIdx === i;
+                  const isDone = pct >= 100;
+                  return (
+                    <div key={`${file.name}-${i}`} className="relative rounded-lg border border-border overflow-hidden">
+                      {/* Green progress background */}
+                      {isSubmitting && (
+                        <div className="absolute inset-0 bg-green-100 transition-all duration-300 ease-out" style={{ width: `${pct}%` }} />
+                      )}
+                      <div className="relative flex items-center gap-1.5 px-2 py-1.5">
+                        {multi && !isSubmitting && (
+                          <div className="flex flex-col -my-1">
+                            <button onClick={(e) => { e.stopPropagation(); moveFile(i, 'up'); }} disabled={i === 0}
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-20 leading-none"><ChevronUp className="h-3 w-3" /></button>
+                            <button onClick={(e) => { e.stopPropagation(); moveFile(i, 'down'); }} disabled={i === files.length - 1}
+                              className="text-muted-foreground hover:text-foreground disabled:opacity-20 leading-none"><ChevronDown className="h-3 w-3" /></button>
+                          </div>
+                        )}
+                        {multi && <span className="text-xs font-bold text-primary w-4 text-center">{i + 1}</span>}
+                        {file.type?.startsWith('video/') ? <FileVideo className="h-4 w-4 text-green-600 shrink-0" /> : <FileAudio className="h-4 w-4 text-green-600 shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{file.name}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground shrink-0">{formatBytes(file.size)}</span>
+                        {isSubmitting ? (
+                          isDone ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" /> :
+                          isActive ? <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" /> :
+                          <span className="text-xs text-muted-foreground w-3.5" />
+                        ) : (
+                          <button onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                            className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-3.5 w-3.5" /></button>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  {multi && <span className="text-xs font-bold text-primary min-w-[20px]">{i + 1}</span>}
-                  {file.type?.startsWith('video/') ? <FileVideo className="h-5 w-5 text-green-600 shrink-0" /> : <FileAudio className="h-5 w-5 text-green-600 shrink-0" />}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
-                    <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
-                  </div>
-                  <button onClick={(e) => { e.stopPropagation(); removeFile(i); }}
-                    className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"><X className="h-4 w-4" /></button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Cloud Import */}
-        <CloudPickers onFileSelected={(f) => { setError(null); setFiles(prev => [...prev, f]); }} onError={(err) => setError(err)} disabled={isSubmitting || success} t={t} />
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/60" /></div>
-          <div className="relative flex justify-center"><span className="bg-gradient-to-br from-slate-50 to-blue-50/30 px-3 text-xs text-muted-foreground">{t('upload.or_configure')}</span></div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
+      </div>
 
+      {/* === SETTINGS ROW === */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
         {/* Source Language */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">{t('upload.source_language')}</label>
+          <label className="block text-xs font-medium text-foreground mb-1">{t('upload.source_language')}</label>
           <select value={sourceLanguage} onChange={(e) => setSourceLanguage(e.target.value)}
-            className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary">
+            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary">
             <option value="">{t('upload.auto_detect')}</option>
             <option value="en">{t('language_selector.en')}</option>
             <option value="pt">{t('language_selector.pt')}</option>
@@ -232,72 +242,59 @@ export function UploadForm({ locale, dict }: Props) {
             <option value="fr">{t('language_selector.fr')}</option>
           </select>
         </div>
-
         {/* Target Language */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">{t('upload.target_language')}</label>
+          <label className="block text-xs font-medium text-foreground mb-1">{t('upload.target_language')}</label>
           <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}
-            className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary">
+            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary">
             <option value="">{t('upload.no_translation')}</option>
             <option value="en">{t('language_selector.en')}</option>
             <option value="pt">{t('language_selector.pt')}</option>
             <option value="es">{t('language_selector.es')}</option>
             <option value="fr">{t('language_selector.fr')}</option>
           </select>
-          {sameLanguage && <p className="mt-1 text-xs text-amber-600">{t('upload.validation.same_language')}</p>}
+          {sameLanguage && <p className="mt-0.5 text-xs text-amber-600">{t('upload.validation.same_language')}</p>}
         </div>
-
-        {/* Processing Mode */}
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">{t('upload.processing_mode')}</label>
-          <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={() => setProcessingMode('best_quality')}
-              className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all ${processingMode === 'best_quality' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
-              <Sparkles className={`h-6 w-6 ${processingMode === 'best_quality' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className="text-sm font-semibold">{t('upload.mode_best')}</span>
-              <span className="text-xs text-muted-foreground">{t('upload.mode_best_desc')}</span>
-            </button>
-            <button type="button" onClick={() => setProcessingMode('balanced')}
-              className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all ${processingMode === 'balanced' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
-              <Scale className={`h-6 w-6 ${processingMode === 'balanced' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className="text-sm font-semibold">{t('upload.mode_balanced')}</span>
-              <span className="text-xs text-muted-foreground">{t('upload.mode_balanced_desc')}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Domain Context (optional) */}
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">{t('upload.domain_context')}</label>
-          <input type="text" value={domainContext} onChange={(e) => setDomainContext(e.target.value)}
-            placeholder={t('upload.domain_context_placeholder')}
-            className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-          <p className="mt-1 text-xs text-muted-foreground">{t('upload.domain_context_help')}</p>
-        </div>
-
-        {/* Submit */}
-        <div className="space-y-2">
-          <button onClick={handleSubmit} disabled={files.length === 0 || isSubmitting || success}
-            className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed">
-            {isSubmitting ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {uploadStatus || t('upload.submitting')} {uploadProgress > 0 && `${uploadProgress}%`}
-              </span>
-            ) : t('upload.submit')}
-          </button>
-          {isSubmitting && uploadProgress > 0 && (
-            <div className="space-y-1">
-              <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
-                <div className="bg-primary h-2.5 rounded-full transition-all duration-300 ease-out" style={{ width: `${uploadProgress}%` }} />
-              </div>
-              <p className="text-xs text-muted-foreground text-center">{t('upload.uploading_progress', { percent: String(uploadProgress) })}</p>
-            </div>
-          )}
-        </div>
-
-        <p className="text-center text-xs text-muted-foreground/70">{t('upload.disclaimer')}</p>
       </div>
+
+      {/* Processing Mode — compact */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <button type="button" onClick={() => setProcessingMode('best_quality')}
+          className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-left transition-all ${processingMode === 'best_quality' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+          <Sparkles className={`h-4 w-4 shrink-0 ${processingMode === 'best_quality' ? 'text-primary' : 'text-muted-foreground'}`} />
+          <div>
+            <span className="text-sm font-semibold block">{t('upload.mode_best')}</span>
+            <span className="text-xs text-muted-foreground">{t('upload.mode_best_desc')}</span>
+          </div>
+        </button>
+        <button type="button" onClick={() => setProcessingMode('balanced')}
+          className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-left transition-all ${processingMode === 'balanced' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+          <Scale className={`h-4 w-4 shrink-0 ${processingMode === 'balanced' ? 'text-primary' : 'text-muted-foreground'}`} />
+          <div>
+            <span className="text-sm font-semibold block">{t('upload.mode_balanced')}</span>
+            <span className="text-xs text-muted-foreground">{t('upload.mode_balanced_desc')}</span>
+          </div>
+        </button>
+      </div>
+
+      {/* Domain Context */}
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-foreground mb-1">{t('upload.domain_context')}</label>
+        <input type="text" value={domainContext} onChange={(e) => setDomainContext(e.target.value)}
+          placeholder={t('upload.domain_context_placeholder')}
+          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+      </div>
+
+      {/* Submit */}
+      <button onClick={handleSubmit} disabled={files.length === 0 || isSubmitting || success}
+        className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed">
+        {isSubmitting ? (
+          <span className="flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('upload.submitting')}
+          </span>
+        ) : t('upload.submit')}
+      </button>
     </div>
   );
 }

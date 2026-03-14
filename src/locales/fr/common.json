@@ -58,7 +58,8 @@
     "assembling": "Assemblage des fichiers...",
     "domain_context": "Domaine / Contexte de la Réunion (optionnel)",
     "domain_context_placeholder": "ex: Implémentation SAP S/4HANA, Stratégie Commerciale, Revue d'Architecture Technique...",
-    "domain_context_help": "Si spécifié, un rapport technique spécialisé sera généré en plus du rapport de réunion"
+    "domain_context_help": "Si spécifié, un rapport technique spécialisé sera généré en plus du rapport de réunion",
+    "no_files_yet": "Aucun fichier sélectionné"
   },
   "jobs": {
     "title": "Mes Travaux",
