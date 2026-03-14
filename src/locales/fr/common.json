@@ -77,7 +77,11 @@
     "source_lang": "Source",
     "target_lang": "Cible",
     "view_details": "Voir les Détails",
-    "loading": "Chargement des travaux..."
+    "loading": "Chargement des travaux...",
+    "select_all": "Tout Sélectionner",
+    "deselect_all": "Tout Désélectionner",
+    "delete_selected": "Supprimer {count} sélectionnés",
+    "bulk_delete_confirm": "Êtes-vous sûr de vouloir supprimer {count} travaux ? Tous les fichiers et données seront définitivement supprimés."
   },
   "job_detail": {
     "title": "Détails du Travail",

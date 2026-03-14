@@ -77,7 +77,11 @@
     "source_lang": "Origem",
     "target_lang": "Destino",
     "view_details": "Ver Detalhes",
-    "loading": "Carregando trabalhos..."
+    "loading": "Carregando trabalhos...",
+    "select_all": "Selecionar Tudo",
+    "deselect_all": "Desmarcar Tudo",
+    "delete_selected": "Apagar {count} selecionados",
+    "bulk_delete_confirm": "Tem a certeza que quer apagar {count} jobs? Todos os ficheiros e dados serão permanentemente removidos."
   },
   "job_detail": {
     "title": "Detalhes do Trabalho",

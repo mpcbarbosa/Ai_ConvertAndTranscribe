@@ -77,7 +77,11 @@
     "source_lang": "Source",
     "target_lang": "Target",
     "view_details": "View Details",
-    "loading": "Loading jobs..."
+    "loading": "Loading jobs...",
+    "select_all": "Select All",
+    "deselect_all": "Deselect All",
+    "delete_selected": "Delete {count} selected",
+    "bulk_delete_confirm": "Are you sure you want to delete {count} jobs? This will permanently remove all files and data for these jobs."
   },
   "job_detail": {
     "title": "Job Details",
