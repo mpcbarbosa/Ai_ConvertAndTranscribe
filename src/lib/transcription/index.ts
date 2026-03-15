@@ -33,13 +33,21 @@ class GroqWhisperProvider implements TranscriptionProvider {
       try {
         const file = fs.createReadStream(audioPath);
 
+        const langCode = options.language || undefined;
+        
+        // Build a strong prompt to prevent hallucinations and language switching
+        const langName = langCode ? { pt: 'Portuguese', en: 'English', es: 'Spanish', fr: 'French' }[langCode] || langCode : null;
+        const basePrompt = langName
+          ? `This is a ${langName} meeting recording. Transcribe in ${langName} only. Do not switch languages. Mark unclear parts as [inaudible].`
+          : options.prompt || 'Transcribe accurately with proper punctuation and capitalization. Mark unclear parts as [inaudible].';
+
         const response = await this.client.audio.transcriptions.create({
           file,
           model: 'whisper-large-v3-turbo',
           response_format: 'verbose_json',
           timestamp_granularities: ['segment'],
-          language: options.language || undefined,
-          prompt: options.prompt || 'Transcribe accurately with proper punctuation and capitalization.',
+          language: langCode,
+          prompt: basePrompt,
         });
 
         const segments: TranscriptSegmentData[] = [];
@@ -49,11 +57,18 @@ class GroqWhisperProvider implements TranscriptionProvider {
         }> }).segments || [];
 
         for (const seg of rawSegments) {
-          if (seg.no_speech_prob && seg.no_speech_prob > 0.8) continue;
+          // Aggressive filtering: skip high no-speech probability
+          if (seg.no_speech_prob && seg.no_speech_prob > 0.6) continue;
+          // Skip very low confidence segments (likely hallucinations)
+          if (seg.avg_logprob && seg.avg_logprob < -1.0) continue;
+          // Skip very short or suspiciously repetitive text
+          const text = seg.text.trim();
+          if (text.length < 2) continue;
+          
           segments.push({
             startMs: Math.round(seg.start * 1000),
             endMs: Math.round(seg.end * 1000),
-            text: seg.text.trim(),
+            text,
             confidence: seg.avg_logprob ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) : undefined,
           });
         }
@@ -125,11 +140,14 @@ class OpenAIWhisperProvider implements TranscriptionProvider {
     }> }).segments || [];
 
     for (const seg of rawSegments) {
-      if (seg.no_speech_prob && seg.no_speech_prob > 0.8) continue;
+      if (seg.no_speech_prob && seg.no_speech_prob > 0.6) continue;
+      if (seg.avg_logprob && seg.avg_logprob < -1.0) continue;
+      const text = seg.text.trim();
+      if (text.length < 2) continue;
       segments.push({
         startMs: Math.round(seg.start * 1000),
         endMs: Math.round(seg.end * 1000),
-        text: seg.text.trim(),
+        text,
         confidence: seg.avg_logprob ? Math.min(1, Math.max(0, 1 + seg.avg_logprob)) : undefined,
       });
     }

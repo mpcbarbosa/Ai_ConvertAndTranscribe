@@ -15,6 +15,7 @@ export async function cleanupSegmentsBatch(
   if (segments.length === 0) return segments;
 
   const langHint = language ? ` The transcript is in ${language}.` : '';
+  const langName = language ? { pt: 'Portuguese', en: 'English', es: 'Spanish', fr: 'French' }[language] || language : 'the original language';
 
   try {
     const textsWithIdx = segments.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
@@ -25,14 +26,20 @@ export async function cleanupSegmentsBatch(
       messages: [
         {
           role: 'system',
-          content: `You are a professional transcript editor.${langHint} Your ONLY job is to clean up a raw speech-to-text transcript. Rules:
+          content: `You are a professional transcript editor.${langHint} Your job is to clean up a raw speech-to-text transcript. Rules:
 1. Fix punctuation, capitalization, and obvious spelling errors
 2. Remove repeated words/phrases that appear at segment boundaries
-3. Keep [inaudible] or [unclear] markers — NEVER invent content
-4. Do NOT add, remove, or change the meaning of any spoken content
-5. Do NOT merge or split segments — keep the same number and order
-6. Return ONLY the cleaned text for each segment, one per line, prefixed with the original index [N]
-7. Preserve the original language — do NOT translate`,
+3. CRITICAL: Remove hallucinated content — text that is clearly NOT spoken words, such as:
+   - Random foreign language insertions (e.g., Korean, Japanese, Chinese, Russian characters in a ${langName} transcript)
+   - Gibberish or nonsensical text
+   - YouTube-style captions ("Subscribe", "Like", "Thank you for watching")
+   - Repeated filler that makes no sense in context
+4. If a segment is entirely hallucinated/gibberish, replace it with [inaudible]
+5. Keep genuine [inaudible] or [unclear] markers
+6. Do NOT change the meaning of genuine spoken content
+7. Do NOT merge or split segments — keep the same number and order
+8. Return ONLY the cleaned text for each segment, one per line, prefixed with the original index [N]
+9. Preserve the original language (${langName}) — do NOT translate genuine speech`,
         },
         { role: 'user', content: `Clean up these transcript segments:\n\n${textsWithIdx}` },
       ],
