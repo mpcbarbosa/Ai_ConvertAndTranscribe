@@ -65,7 +65,14 @@
     "extract_fallback": "Usando archivo original",
     "uploading": "Subiendo...",
     "uploaded": "¡Subido!",
-    "will_extract": "extraer audio"
+    "will_extract": "extraer audio",
+    "timing": {
+      "title": "Cronología del Procesamiento",
+      "extraction": "Extracción de audio",
+      "upload": "Subida a la nube",
+      "assembly": "Ensamblaje del archivo",
+      "processing": "Procesando..."
+    }
   },
   "jobs": {
     "title": "Mis Trabajos",

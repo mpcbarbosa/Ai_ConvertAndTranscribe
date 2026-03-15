@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDropzone } from 'react-dropzone';
 import { createTranslator } from '../../lib/i18n';
@@ -17,6 +17,12 @@ interface Props { locale: Locale; dict: Record<string, unknown>; }
 
 const MAX_SIZE = parseInt(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB || '500') * 1024 * 1024 || 500 * 1024 * 1024;
 const CHUNK_SIZE = 45 * 1024 * 1024;
+
+function formatElapsed(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`;
+}
 
 async function uploadFileChunked(
   file: File,
@@ -66,6 +72,10 @@ export function UploadForm({ locale, dict }: Props) {
   const [activeFileIdx, setActiveFileIdx] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [timingLog, setTimingLog] = useState<Array<{ phase: string; durationSec: number }>>([]);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setError(null);
@@ -101,8 +111,24 @@ export function UploadForm({ locale, dict }: Props) {
     setIsSubmitting(true); setError(null);
     setFileProgresses(new Array(files.length).fill(0));
     setFileStatuses(new Array(files.length).fill(''));
+    setTimingLog([]);
+    setElapsedSec(0);
+
+    // Start elapsed timer
+    startTimeRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsedSec(Math.round((Date.now() - startTimeRef.current) / 1000));
+    }, 500);
+
+    const logPhase = (phase: string, startMs: number) => {
+      const dur = Math.round((Date.now() - startMs) / 100) / 10;
+      setTimingLog(prev => [...prev, { phase, durationSec: dur }]);
+      return Date.now();
+    };
 
     try {
+      let phaseStart = Date.now();
+
       // Phase 1: Extract audio from video files in browser
       const filesToUpload: File[] = [];
       const hasVideos = files.some(f => isVideoFile(f));
@@ -114,33 +140,33 @@ export function UploadForm({ locale, dict }: Props) {
             setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.extracting_audio'); return n; });
             try {
               const audioFile = await extractAudioInBrowser(files[fi], (pct, status) => {
-                setFileProgresses(prev => { const n = [...prev]; n[fi] = pct * 0.4; return n; }); // 0-40% for extraction
+                setFileProgresses(prev => { const n = [...prev]; n[fi] = pct * 0.4; return n; });
                 setFileStatuses(prev => { const n = [...prev]; n[fi] = status; return n; });
               });
               filesToUpload.push(audioFile);
               setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.audio_extracted'); return n; });
             } catch (err) {
               console.warn('[extract] Failed, uploading original:', err);
-              filesToUpload.push(files[fi]); // Fallback: upload original
+              filesToUpload.push(files[fi]);
               setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.extract_fallback'); return n; });
             }
           } else {
-            filesToUpload.push(files[fi]); // Audio files pass through
+            filesToUpload.push(files[fi]);
           }
         }
+        phaseStart = logPhase(t('upload.timing.extraction'), phaseStart);
       } else {
         filesToUpload.push(...files);
       }
 
       // Phase 2: Upload files
       const uploads: Array<{ uploadId: string; fileName: string; fileSize: number; mimeType: string; totalChunks: number }> = [];
-      const uploadTotalSize = filesToUpload.reduce((s, f) => s + f.size, 0);
 
       for (let fi = 0; fi < filesToUpload.length; fi++) {
         setActiveFileIdx(fi);
         setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.uploading'); return n; });
-        const baseProgress = hasVideos ? 40 : 0; // After extraction = 40%
-        const uploadRange = hasVideos ? 60 : 100; // Remaining for upload
+        const baseProgress = hasVideos ? 40 : 0;
+        const uploadRange = hasVideos ? 60 : 100;
         const result = await uploadFileChunked(filesToUpload[fi], (pct) => {
           setFileProgresses(prev => { const n = [...prev]; n[fi] = baseProgress + (pct / 100) * uploadRange; return n; });
         });
@@ -148,6 +174,7 @@ export function UploadForm({ locale, dict }: Props) {
         setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.uploaded'); return n; });
         uploads.push(result);
       }
+      phaseStart = logPhase(t('upload.timing.upload'), phaseStart);
 
       setActiveFileIdx(-1);
 
@@ -166,11 +193,18 @@ export function UploadForm({ locale, dict }: Props) {
 
       if (!completeRes.ok) throw new Error((await completeRes.json()).error || 'Failed');
       const result = await completeRes.json();
+      logPhase(t('upload.timing.assembly'), phaseStart);
+
+      // Stop timer
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      setElapsedSec(Math.round((Date.now() - startTimeRef.current) / 1000));
+
       setSuccess(true);
-      setTimeout(() => router.push(`/${locale}/jobs/${result.id}`), 1500);
+      setTimeout(() => router.push(`/${locale}/jobs/${result.id}`), 2500);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('upload.error'));
     } finally {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       setIsSubmitting(false); setFileProgresses([]); setFileStatuses([]); setActiveFileIdx(-1);
     }
   };
@@ -337,10 +371,37 @@ export function UploadForm({ locale, dict }: Props) {
         {isSubmitting ? (
           <span className="flex items-center justify-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {t('upload.submitting')}
+            {t('upload.submitting')} — {formatElapsed(elapsedSec)}
           </span>
         ) : t('upload.submit')}
       </button>
+
+      {/* Timing Log */}
+      {(timingLog.length > 0 || isSubmitting) && (
+        <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-foreground">{t('upload.timing.title')}</span>
+            <span className="text-xs font-mono text-primary">{formatElapsed(elapsedSec)}</span>
+          </div>
+          <div className="space-y-0.5">
+            {timingLog.map((entry, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  {entry.phase}
+                </span>
+                <span className="text-xs font-mono text-muted-foreground">{entry.durationSec}s</span>
+              </div>
+            ))}
+            {isSubmitting && (
+              <div className="flex items-center gap-1">
+                <Loader2 className="h-3 w-3 text-primary animate-spin" />
+                <span className="text-xs text-primary">{t('upload.timing.processing')}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
