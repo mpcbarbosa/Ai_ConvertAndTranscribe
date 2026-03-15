@@ -59,7 +59,13 @@
     "domain_context": "Domínio / Contexto da Reunião (opcional)",
     "domain_context_placeholder": "ex: Implementação SAP S/4HANA, Estratégia Comercial, Revisão de Arquitectura Técnica...",
     "domain_context_help": "Se especificado, será gerado um relatório técnico especializado além do relatório da reunião",
-    "no_files_yet": "Nenhum ficheiro selecionado"
+    "no_files_yet": "Nenhum ficheiro selecionado",
+    "extracting_audio": "A extrair áudio do vídeo...",
+    "audio_extracted": "Áudio extraído!",
+    "extract_fallback": "A usar ficheiro original",
+    "uploading": "A enviar...",
+    "uploaded": "Enviado!",
+    "will_extract": "extrai áudio"
   },
   "jobs": {
     "title": "Meus Trabalhos",

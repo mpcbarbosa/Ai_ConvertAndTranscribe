@@ -9,8 +9,9 @@ import type { Locale } from '../../types';
 import { CloudPickers } from './cloud-pickers';
 import {
   Upload, FileAudio, FileVideo, X, CheckCircle2, AlertCircle,
-  Loader2, Sparkles, Scale, ChevronUp, ChevronDown,
+  Loader2, Sparkles, Scale, ChevronUp, ChevronDown, Music,
 } from 'lucide-react';
+import { isVideoFile, extractAudioInBrowser } from '../../lib/browser-audio-extract';
 
 interface Props { locale: Locale; dict: Record<string, unknown>; }
 
@@ -61,6 +62,7 @@ export function UploadForm({ locale, dict }: Props) {
   const [domainContext, setDomainContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fileProgresses, setFileProgresses] = useState<number[]>([]);
+  const [fileStatuses, setFileStatuses] = useState<string[]>([]);
   const [activeFileIdx, setActiveFileIdx] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -98,16 +100,52 @@ export function UploadForm({ locale, dict }: Props) {
     if (files.length === 0) { setError(t('upload.validation.file_required')); return; }
     setIsSubmitting(true); setError(null);
     setFileProgresses(new Array(files.length).fill(0));
+    setFileStatuses(new Array(files.length).fill(''));
 
     try {
-      const uploads: Array<{ uploadId: string; fileName: string; fileSize: number; mimeType: string; totalChunks: number }> = [];
+      // Phase 1: Extract audio from video files in browser
+      const filesToUpload: File[] = [];
+      const hasVideos = files.some(f => isVideoFile(f));
 
-      for (let fi = 0; fi < files.length; fi++) {
+      if (hasVideos) {
+        for (let fi = 0; fi < files.length; fi++) {
+          setActiveFileIdx(fi);
+          if (isVideoFile(files[fi])) {
+            setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.extracting_audio'); return n; });
+            try {
+              const audioFile = await extractAudioInBrowser(files[fi], (pct, status) => {
+                setFileProgresses(prev => { const n = [...prev]; n[fi] = pct * 0.4; return n; }); // 0-40% for extraction
+                setFileStatuses(prev => { const n = [...prev]; n[fi] = status; return n; });
+              });
+              filesToUpload.push(audioFile);
+              setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.audio_extracted'); return n; });
+            } catch (err) {
+              console.warn('[extract] Failed, uploading original:', err);
+              filesToUpload.push(files[fi]); // Fallback: upload original
+              setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.extract_fallback'); return n; });
+            }
+          } else {
+            filesToUpload.push(files[fi]); // Audio files pass through
+          }
+        }
+      } else {
+        filesToUpload.push(...files);
+      }
+
+      // Phase 2: Upload files
+      const uploads: Array<{ uploadId: string; fileName: string; fileSize: number; mimeType: string; totalChunks: number }> = [];
+      const uploadTotalSize = filesToUpload.reduce((s, f) => s + f.size, 0);
+
+      for (let fi = 0; fi < filesToUpload.length; fi++) {
         setActiveFileIdx(fi);
-        const result = await uploadFileChunked(files[fi], (pct) => {
-          setFileProgresses(prev => { const n = [...prev]; n[fi] = pct; return n; });
+        setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.uploading'); return n; });
+        const baseProgress = hasVideos ? 40 : 0; // After extraction = 40%
+        const uploadRange = hasVideos ? 60 : 100; // Remaining for upload
+        const result = await uploadFileChunked(filesToUpload[fi], (pct) => {
+          setFileProgresses(prev => { const n = [...prev]; n[fi] = baseProgress + (pct / 100) * uploadRange; return n; });
         });
         setFileProgresses(prev => { const n = [...prev]; n[fi] = 100; return n; });
+        setFileStatuses(prev => { const n = [...prev]; n[fi] = t('upload.uploaded'); return n; });
         uploads.push(result);
       }
 
@@ -133,7 +171,7 @@ export function UploadForm({ locale, dict }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('upload.error'));
     } finally {
-      setIsSubmitting(false); setFileProgresses([]); setActiveFileIdx(-1);
+      setIsSubmitting(false); setFileProgresses([]); setFileStatuses([]); setActiveFileIdx(-1);
     }
   };
 
@@ -187,13 +225,15 @@ export function UploadForm({ locale, dict }: Props) {
               <div className="space-y-1 flex-1 overflow-y-auto max-h-[200px]">
                 {files.map((file, i) => {
                   const pct = fileProgresses[i] || 0;
+                  const status = fileStatuses[i] || '';
                   const isActive = activeFileIdx === i;
                   const isDone = pct >= 100;
+                  const isVideo = isVideoFile(file);
                   return (
                     <div key={`${file.name}-${i}`} className="relative rounded-lg border border-border overflow-hidden">
-                      {/* Green progress background */}
+                      {/* Progress background: purple for extraction, green for upload */}
                       {isSubmitting && (
-                        <div className="absolute inset-0 bg-green-100 transition-all duration-300 ease-out" style={{ width: `${pct}%` }} />
+                        <div className={`absolute inset-0 transition-all duration-300 ease-out ${pct <= 40 && isVideo ? 'bg-purple-100' : 'bg-green-100'}`} style={{ width: `${pct}%` }} />
                       )}
                       <div className="relative flex items-center gap-1.5 px-2 py-1.5">
                         {multi && !isSubmitting && (
@@ -205,11 +245,17 @@ export function UploadForm({ locale, dict }: Props) {
                           </div>
                         )}
                         {multi && <span className="text-xs font-bold text-primary w-4 text-center">{i + 1}</span>}
-                        {file.type?.startsWith('video/') ? <FileVideo className="h-4 w-4 text-green-600 shrink-0" /> : <FileAudio className="h-4 w-4 text-green-600 shrink-0" />}
+                        {isVideo ? <FileVideo className="h-4 w-4 text-green-600 shrink-0" /> : <FileAudio className="h-4 w-4 text-green-600 shrink-0" />}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-foreground truncate">{file.name}</p>
+                          {isSubmitting && status && (
+                            <p className="text-[10px] text-muted-foreground truncate">{status}</p>
+                          )}
                         </div>
                         <span className="text-xs text-muted-foreground shrink-0">{formatBytes(file.size)}</span>
+                        {isVideo && !isSubmitting && (
+                          <span className="text-[10px] text-purple-600 bg-purple-50 rounded px-1 shrink-0">{t('upload.will_extract')}</span>
+                        )}
                         {isSubmitting ? (
                           isDone ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" /> :
                           isActive ? <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" /> :

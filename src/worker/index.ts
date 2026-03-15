@@ -488,11 +488,18 @@ async function processJob(bullJob: BullJob<TranscriptionJobData>) {
     // Convert each file to MP3, then concatenate if multi-file
     const mp3Parts: string[] = [];
     for (let fi = 0; fi < originalPaths.length; fi++) {
-      const partMp3 = path.join(tmpDir, `part_${fi}.mp3`);
-      await log.info('converting', `Converting file ${fi + 1}/${originalPaths.length} to MP3...`);
-      await convertToMp3(originalPaths[fi], partMp3);
-      mp3Parts.push(partMp3);
-      await cleanupFiles(originalPaths[fi]);
+      const ext = path.extname(originalPaths[fi]).toLowerCase();
+      if (ext === '.mp3') {
+        // Already MP3 (e.g., extracted in browser) — skip conversion
+        await log.info('converting', `File ${fi + 1}/${originalPaths.length} is already MP3, skipping conversion`);
+        mp3Parts.push(originalPaths[fi]);
+      } else {
+        const partMp3 = path.join(tmpDir, `part_${fi}.mp3`);
+        await log.info('converting', `Converting file ${fi + 1}/${originalPaths.length} to MP3...`);
+        await convertToMp3(originalPaths[fi], partMp3);
+        mp3Parts.push(partMp3);
+        await cleanupFiles(originalPaths[fi]);
+      }
     }
 
     let mp3Path: string;

@@ -59,7 +59,13 @@
     "domain_context": "Meeting Domain / Context (optional)",
     "domain_context_placeholder": "e.g., SAP S/4HANA Implementation, Sales Strategy, Technical Architecture Review...",
     "domain_context_help": "If specified, a specialized technical report will be generated in addition to the meeting report",
-    "no_files_yet": "No files selected"
+    "no_files_yet": "No files selected",
+    "extracting_audio": "Extracting audio from video...",
+    "audio_extracted": "Audio extracted!",
+    "extract_fallback": "Using original file",
+    "uploading": "Uploading...",
+    "uploaded": "Uploaded!",
+    "will_extract": "audio extract"
   },
   "jobs": {
     "title": "My Jobs",

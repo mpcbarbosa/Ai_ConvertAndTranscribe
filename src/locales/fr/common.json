@@ -59,7 +59,13 @@
     "domain_context": "Domaine / Contexte de la Réunion (optionnel)",
     "domain_context_placeholder": "ex: Implémentation SAP S/4HANA, Stratégie Commerciale, Revue d'Architecture Technique...",
     "domain_context_help": "Si spécifié, un rapport technique spécialisé sera généré en plus du rapport de réunion",
-    "no_files_yet": "Aucun fichier sélectionné"
+    "no_files_yet": "Aucun fichier sélectionné",
+    "extracting_audio": "Extraction de l'audio de la vidéo...",
+    "audio_extracted": "Audio extrait !",
+    "extract_fallback": "Utilisation du fichier original",
+    "uploading": "Envoi en cours...",
+    "uploaded": "Envoyé !",
+    "will_extract": "extraire audio"
   },
   "jobs": {
     "title": "Mes Travaux",
