@@ -1,6 +1,6 @@
 /**
- * Browser-side audio extraction using FFmpeg.wasm (single-threaded).
- * Uses the ST core which does NOT require SharedArrayBuffer / COOP+COEP headers.
+ * Browser-side audio extraction using FFmpeg.wasm served from same origin.
+ * All FFmpeg files are in /public/ffmpeg/ — no CORS issues, no COEP needed.
  * Converts video files to small MP3 audio before upload.
  * 467MB video → ~45MB audio = 10x smaller upload.
  */
@@ -21,7 +21,6 @@ function loadScript(src: string): Promise<void> {
     }
     const script = document.createElement('script');
     script.src = src;
-    script.crossOrigin = 'anonymous';
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Failed to load: ${src}`));
     document.head.appendChild(script);
@@ -31,27 +30,25 @@ function loadScript(src: string): Promise<void> {
 async function loadFFmpeg(): Promise<any> {
   if (ffmpegInstance && ffmpegReady) return ffmpegInstance;
 
-  // Load FFmpeg UMD bundles
-  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.min.js');
+  // Load FFmpeg from same origin (public/ffmpeg/)
+  await loadScript('/ffmpeg/ffmpeg.js');
   
   const FFmpegLib = (window as any).FFmpegWASM;
   if (!FFmpegLib?.FFmpeg) {
-    throw new Error('FFmpeg.wasm library not found on window.FFmpegWASM');
+    throw new Error('FFmpeg.wasm library not found');
   }
 
   const ffmpeg = new FFmpegLib.FFmpeg();
 
-  // Use single-threaded core — no COOP/COEP headers needed
-  const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-  
+  // All files served from same origin — no CORS/Worker issues
   await ffmpeg.load({
-    coreURL: `${coreBase}/ffmpeg-core.js`,
-    wasmURL: `${coreBase}/ffmpeg-core.wasm`,
+    coreURL: '/ffmpeg/ffmpeg-core.js',
+    wasmURL: '/ffmpeg/ffmpeg-core.wasm',
   });
 
   ffmpegInstance = ffmpeg;
   ffmpegReady = true;
-  console.log('[ffmpeg.wasm] Loaded successfully (single-thread mode)');
+  console.log('[ffmpeg.wasm] Loaded successfully (same-origin)');
   return ffmpeg;
 }
 
@@ -73,19 +70,17 @@ export async function extractAudioInBrowser(
   const inputName = `input${inputExt}`;
   const outputName = 'output.mp3';
 
-  // Read file into memory
   const fileData = new Uint8Array(await videoFile.arrayBuffer());
   await ffmpeg.writeFile(inputName, fileData);
 
   onProgress?.(25, 'Extracting audio...');
 
-  // Track progress
   ffmpeg.on('progress', ({ progress }: { progress: number }) => {
     const pct = Math.min(90, Math.round(25 + progress * 65));
     onProgress?.(pct, 'Extracting audio...');
   });
 
-  // Extract: mono, 32kbps, 22kHz (matches server settings)
+  // Extract: mono, 32kbps, 22kHz
   await ffmpeg.exec([
     '-i', inputName,
     '-vn',
@@ -100,7 +95,6 @@ export async function extractAudioInBrowser(
 
   const outputData = await ffmpeg.readFile(outputName);
 
-  // Cleanup virtual FS
   try { await ffmpeg.deleteFile(inputName); } catch {}
   try { await ffmpeg.deleteFile(outputName); } catch {}
 
